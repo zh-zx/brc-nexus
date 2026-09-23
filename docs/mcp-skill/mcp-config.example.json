@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cccap-brc": {
+      "type": "http",
+      "url": "http://<主机>:7800/mcp",
+      "headers": {
+        "Authorization": "Bearer <把这里换成管理员发给你的API令牌>"
+      }
+    }
+  }
+}

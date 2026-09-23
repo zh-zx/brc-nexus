@@ -1,0 +1,37 @@
+# 依赖
+node_modules/
+
+# 构建产物
+client/dist/
+client/dev-dist/
+*.tsbuildinfo
+
+# 运行时数据（SQLite 实库 / WAL / 备份 / 上传，均可由代码重建或在部署机本地生成）
+server/data/brc.db
+server/data/brc.db-wal
+server/data/brc.db-shm
+server/data/backups/
+server/data/uploads/
+backups/
+
+# 密钥与本地环境
+.env
+.env.*
+server/data/.jwt-secret
+
+# vendored 参考（体量/外部仓库，不入库）
+ggce-server/
+grin-global-server-v2026.3.0.zip
+
+# 临时/产物
+_tmp*/
+shots/
+shots_v216/
+*.log
+e2e_v25.log
+
+# 编辑器/系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

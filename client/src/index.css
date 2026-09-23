@@ -1,0 +1,562 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* v2.14 主题系统：两套视觉（brutalist / classic）通过 :root 与 :root[data-theme=...] 的 CSS 变量切换。
+   - brutalist（默认）：硬边黄黑工业风（v2.13 确立）
+   - classic：CCCAP 绿柔卡软阴影（v2.10 风格的优化升级）
+   所有页面用同一套 .t-* 语义类，主题切换零 JSX 改动。 */
+
+:root {
+  /* === 通用 token（两主题共享） === */
+  --ink: #0A0A0A;
+  --paper: #F5F5F2;
+  --acid: #FFE24A;
+  --moss: #2E7D32;
+  /* v2.18 字体栈（离线：仅系统栈，零网络零体积。JetBrains/Inter 若日后自托管则自动生效） */
+  --t-font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --t-font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, 'SF Mono', Menlo, monospace;
+  --t-font-display: Georgia, 'Iowan Old Style', 'Times New Roman', 'Noto Serif SC', 'Songti SC', serif;
+  --ash-0: #FFFFFF;
+  --ash-100: #F5F5F2;
+  --ash-200: #E5E5E0;
+  --ash-300: #C7C7BF;
+  --ash-400: #9C9C92;
+  --ash-500: #6F6F66;
+  --ash-600: #4A4A43;
+  --ash-700: #2E2E29;
+  --ash-800: #1A1A17;
+  --ash-900: #0A0A0A;
+  /* v2.16 共享语义色 */
+  --t-quality-ok: #16A34A;
+  --t-quality-mid: #D97706;
+  --t-quality-bad: #DC2626;
+
+  /* === 主题 token（brutalist 默认） === */
+  --t-page-bg: var(--paper);
+  --t-text: var(--ink);
+  --t-text-dim: rgba(10,10,10,0.5);
+  --t-text-mute: rgba(10,10,10,0.3);
+  --t-text-soft: rgba(10,10,10,0.7);
+  --t-card-bg: var(--ash-0);
+  --t-card-border: 1.5px solid var(--ink);
+  --t-card-shadow: 4px 4px 0 var(--ink);
+  --t-card-radius: 0;
+  --t-accent: var(--acid);
+  --t-accent-text: var(--ink);
+  --t-primary: var(--ink);
+  --t-primary-text: var(--acid);
+  --t-pill-bg: var(--acid);
+  --t-pill-muted-bg: var(--ash-200);
+  --t-table-stripe: transparent;
+  --t-table-hover: var(--ash-100);
+  --t-section-bar: var(--ink);
+  --t-nav-active-bg: var(--ink);
+  --t-nav-active-text: var(--acid);
+  --t-top-gradient: linear-gradient(90deg, #FFF44F 0%, #0A0A0A 25%, #6B21A8 50%, #1E40AF 75%, #2E7D32 100%);
+  --t-blob-display: none;
+  --t-input-bg: var(--ash-0);
+  --t-input-border: 1.5px solid var(--ink);
+  --t-divider: var(--ash-200);
+  /* v2.16 警示面（保存条/MCPD 徽章/截断提示） */
+  --t-warn-bg: #FDE68A;
+  --t-warn-fg: #78350F;
+  /* v2.18 语义状态色对（tone 徽章，两主题各自；brutalist=实心淡彩+深字） */
+  --t-tone-ok-bg: #E7F6EC;      --t-tone-ok-fg: #1B7A34;
+  --t-tone-warn-bg: #FFF3CC;    --t-tone-warn-fg: #8A5A00;
+  --t-tone-info-bg: #E6EEFB;    --t-tone-info-fg: #1D4ED8;
+  --t-tone-bad-bg: #FBE3E3;     --t-tone-bad-fg: #C62828;
+  --t-tone-neutral-bg: #ECECE6; --t-tone-neutral-fg: #6B6B62;
+  --t-accent-soft: rgba(255,226,74,0.35);
+  /* v2.18 深度阶（brutalist 硬影；不含被冻结的卡片 resting 4px4px0） */
+  --t-elev-1: 2px 2px 0 rgba(10,10,10,0.16);
+  --t-elev-2: 3px 3px 0 var(--ink);
+  --t-elev-3: 5px 5px 0 var(--ink);
+  --t-focus-ring: 0 0 0 3px rgba(10,10,10,0.18);
+}
+
+:root[data-theme="classic"] {
+  --t-page-bg: #f3f9f2;
+  --t-text: #1F2937;
+  --t-text-dim: rgba(31,41,55,0.6);
+  --t-text-mute: rgba(31,41,55,0.4);
+  --t-text-soft: rgba(31,41,55,0.7);
+  --t-card-bg: rgba(255, 255, 255, 0.72);
+  --t-card-border: 1px solid rgba(255, 255, 255, 0.6);
+  --t-card-shadow: 0 4px 16px rgba(46,125,50,0.08);
+  --t-card-radius: 1rem;
+  --t-accent: #2E7D32;
+  --t-accent-text: #FFFFFF;
+  --t-primary: #2E7D32;
+  --t-primary-text: #FFFFFF;
+  --t-pill-bg: rgba(46,125,50,0.1);
+  --t-pill-muted-bg: rgba(46,125,50,0.06);
+  --t-table-stripe: rgba(46,125,50,0.02);
+  --t-table-hover: rgba(46,125,50,0.06);
+  --t-section-bar: #2E7D32;
+  --t-nav-active-bg: rgba(46,125,50,0.15);
+  --t-nav-active-text: #1B5E20;
+  --t-top-gradient: linear-gradient(90deg, #4ADE80 0%, #2E7D32 50%, #1B5E20 100%);
+  --t-blob-display: block;
+  --t-input-bg: rgba(255,255,255,0.5);
+  --t-input-border: 1px solid rgba(46,125,50,0.15);
+  --t-divider: rgba(46,125,50,0.1);
+  /* v2.16 警示面 */
+  --t-warn-bg: rgba(217,119,6,0.12);
+  --t-warn-fg: #92400E;
+  /* v2.18 语义状态色对（classic=半透彩底+深字，绿系为主） */
+  --t-tone-ok-bg: rgba(46,125,50,0.12);      --t-tone-ok-fg: #1B5E20;
+  --t-tone-warn-bg: rgba(217,119,6,0.14);    --t-tone-warn-fg: #92400E;
+  --t-tone-info-bg: rgba(59,130,246,0.12);   --t-tone-info-fg: #1D4ED8;
+  --t-tone-bad-bg: rgba(239,68,68,0.12);     --t-tone-bad-fg: #C62828;
+  --t-tone-neutral-bg: rgba(46,125,50,0.06); --t-tone-neutral-fg: rgba(31,41,55,0.6);
+  --t-accent-soft: rgba(46,125,50,0.12);
+  /* v2.18 深度阶（classic 柔影，绝不含 4px4px0） */
+  --t-elev-1: 0 1px 3px rgba(46,125,50,0.10);
+  --t-elev-2: 0 4px 14px rgba(46,125,50,0.12);
+  --t-elev-3: 0 12px 30px rgba(46,125,50,0.16);
+  --t-focus-ring: 0 0 0 3px rgba(46,125,50,0.18);
+}
+
+body {
+  margin: 0;
+  font-family: var(--t-font-body);
+  -webkit-font-smoothing: antialiased;
+  background: var(--t-page-bg);
+  color: var(--t-text);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+/* 顶栏 4px 主题渐变线 */
+.app-top-gradient {
+  position: relative;
+}
+.app-top-gradient::before {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--t-top-gradient);
+  z-index: 60;
+  pointer-events: none;
+  transition: background 0.2s;
+}
+
+/* 软光斑（仅 classic 主题显示） */
+.app-blob {
+  display: var(--t-blob-display);
+}
+
+/* === 语义类库（同一 API，主题切换视觉不同） === */
+@layer components {
+  .t-page { background: var(--t-page-bg); color: var(--t-text); }
+  .t-card {
+    background: var(--t-card-bg);
+    border: var(--t-card-border);
+    border-radius: var(--t-card-radius);
+    box-shadow: var(--t-card-shadow);
+    transition: all 0.2s;
+  }
+  .t-card-soft {
+    background: var(--t-card-bg);
+    border: 1px solid var(--t-divider);
+    border-radius: var(--t-card-radius);
+    box-shadow: var(--t-card-shadow);
+  }
+  .t-section-title {
+    color: var(--t-text);
+    font-family: var(--t-font-mono);
+    font-size: 0.7rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .t-section-title::before {
+    content: '';
+    width: 4px; height: 1rem; background: var(--t-section-bar); display: block;
+  }
+  .t-divider { border-top: 1px solid var(--t-divider); }
+
+  .t-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    font-family: var(--t-font-mono);
+    font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;
+    border-radius: var(--t-card-radius);
+    cursor: pointer; transition: all 0.12s;
+  }
+  .t-btn:focus-visible { outline: none; box-shadow: var(--t-focus-ring); }
+  .t-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .t-btn-primary {
+    background: var(--t-primary); color: var(--t-primary-text);
+    border: 1.5px solid var(--ink);
+    box-shadow: var(--t-card-shadow);
+  }
+  /* 统一「上浮」动效（两主题同向同幅）；阴影材质各自保留主题身份 */
+  .t-btn-primary:hover { transform: translateY(-2px); box-shadow: 5px 6px 0 var(--ink); }
+  .t-btn-primary:active { transform: translateY(0); box-shadow: 3px 3px 0 var(--ink); }
+  .t-btn-accent {
+    background: var(--t-accent); color: var(--t-accent-text);
+    border: 1.5px solid var(--ink);
+    box-shadow: var(--t-card-shadow);
+    font-weight: 800;
+  }
+  .t-btn-accent:hover { transform: translateY(-2px); box-shadow: 5px 6px 0 var(--ink); }
+  .t-btn-accent:active { transform: translateY(0); box-shadow: 3px 3px 0 var(--ink); }
+  .t-btn-ghost {
+    background: var(--ash-100); color: var(--t-text);
+    border: 1.5px solid var(--ink);
+  }
+  .t-btn-ghost:hover { background: var(--ash-200); }
+  /* 中性次要「描边」按钮：类名不含 border/bg- 子串，规避 v2.14.1 两主题强制块的配色漂移 */
+  .t-btn-outline {
+    background: var(--t-input-bg); color: var(--t-text);
+    border: 1.5px solid var(--ink);
+  }
+  .t-btn-outline:hover { background: var(--t-table-hover); }
+  :root[data-theme="classic"] .t-btn-primary,
+  :root[data-theme="classic"] .t-btn-accent,
+  :root[data-theme="classic"] .t-btn-ghost,
+  :root[data-theme="classic"] .t-btn-outline {
+    border: 1px solid var(--ink);
+    box-shadow: 0 2px 6px rgba(46,125,50,0.12);
+  }
+  /* classic 不再抹平 transform：primary/accent 跟随基类上浮；仅把阴影材质换成柔影放大 */
+  :root[data-theme="classic"] .t-btn-primary:hover,
+  :root[data-theme="classic"] .t-btn-accent:hover { box-shadow: 0 8px 16px rgba(46,125,50,0.18); }
+  :root[data-theme="classic"] .t-btn-primary:active,
+  :root[data-theme="classic"] .t-btn-accent:active { box-shadow: 0 3px 8px rgba(46,125,50,0.12); }
+  :root[data-theme="classic"] .t-btn-ghost:hover,
+  :root[data-theme="classic"] .t-btn-outline:hover { background: var(--t-table-hover); box-shadow: 0 4px 10px rgba(46,125,50,0.18); }
+
+  .t-input {
+    background: var(--t-input-bg);
+    border: var(--t-input-border);
+    border-radius: var(--t-card-radius);
+    color: var(--t-text);
+    padding: 0.5rem 0.75rem; font-size: 0.875rem;
+    width: 100%; outline: none;
+    transition: all 0.15s;
+  }
+  .t-input:focus {
+    border-color: var(--t-accent);
+    box-shadow: var(--t-focus-ring);
+  }
+  :root[data-theme="classic"] .t-input:focus { border-color: var(--moss); box-shadow: 0 0 0 3px rgba(46,125,50,0.15); }
+
+  .t-select { @apply t-input; }
+
+  .t-table { width: 100%; font-size: 0.75rem; border-collapse: collapse; }
+  .t-th { padding: 0.5rem 0.75rem; text-align: left; font-family: var(--t-font-mono); font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--t-text-dim); border-bottom: 1.5px solid var(--ink); font-weight: 900; }
+  .t-td { padding: 0.5rem 0.75rem; color: var(--t-text); border-bottom: 1px solid var(--t-divider); }
+  .t-tr-hover { transition: background 0.15s; }
+  .t-tr-hover:hover { background: var(--t-table-hover); }
+
+  .t-stat { font-family: var(--t-font-mono); font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.04em; line-height: 0.9; color: var(--t-text); }
+  .t-stat-label { font-family: var(--t-font-mono); font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--t-text-dim); font-weight: 900; }
+
+  .t-pill { display: inline-flex; align-items: center; padding: 2px 8px; font-family: var(--t-font-mono); font-size: 0.625rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; border: 1.5px solid var(--ink); border-radius: 0; background: var(--t-pill-bg); color: var(--ink); }
+  .t-pill-muted { background: var(--t-pill-muted-bg); color: var(--t-text); }
+  :root[data-theme="classic"] .t-pill { border-radius: 9999px; border-width: 1px; }
+
+  .t-nav-item {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    color: var(--t-text-soft);
+    background: transparent;
+    border: 1.5px solid transparent;
+    font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+    transition: all 0.15s;
+    border-radius: var(--t-card-radius);
+  }
+  .t-nav-item:hover { background: var(--t-card-bg); color: var(--t-text); border-color: var(--ash-300); }
+  .t-nav-item[data-active="true"] {
+    background: var(--t-nav-active-bg);
+    color: var(--t-nav-active-text);
+    border-color: var(--ink);
+    font-weight: 900;
+  }
+
+  .t-link { color: var(--accent); text-decoration: underline; }
+
+  /* 主题切换器段控件 */
+  .t-theme-toggle {
+    display: inline-flex; align-items: center; gap: 0; border: 1.5px solid var(--ink);
+    background: var(--t-card-bg);
+  }
+  .t-theme-toggle button {
+    padding: 0.375rem 0.75rem; font-size: 0.625rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em;
+    background: transparent; color: var(--t-text-soft); border: 0; cursor: pointer;
+  }
+  .t-theme-toggle button[data-active="true"] {
+    background: var(--t-accent); color: var(--ink);
+  }
+
+  /* === v2.18 语义 tone 徽章（只设色，布局由调用处决定） === */
+  .tone-ok     { background: var(--t-tone-ok-bg);      color: var(--t-tone-ok-fg); }
+  .tone-warn   { background: var(--t-tone-warn-bg);    color: var(--t-tone-warn-fg); }
+  .tone-info   { background: var(--t-tone-info-bg);    color: var(--t-tone-info-fg); }
+  .tone-bad    { background: var(--t-tone-bad-bg);     color: var(--t-tone-bad-fg); }
+  .tone-neutral{ background: var(--t-tone-neutral-bg); color: var(--t-tone-neutral-fg); }
+
+  /* === v2.18 排版原语：等宽 eyebrow + tabular 数字 + 页标题 === */
+  .t-eyebrow {
+    font-family: var(--t-font-mono); text-transform: uppercase; letter-spacing: 0.16em;
+    font-size: 0.625rem; font-weight: 700; color: var(--t-text-dim); line-height: 1;
+  }
+  .t-num { font-family: var(--t-font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .t-page-title {
+    color: var(--t-text); font-weight: 900; text-transform: uppercase;
+    letter-spacing: -0.01em; line-height: 1.1;
+  }
+  :root[data-theme="classic"] .t-page-title {
+    font-family: var(--t-font-display); font-weight: 600; text-transform: none; letter-spacing: normal;
+  }
+
+  /* === v2.18 深度阶工具类（非冻结容器用；弹窗/卡片 resting 仍走 --t-card-shadow） === */
+  .t-elev-1 { box-shadow: var(--t-elev-1); }
+  .t-elev-2 { box-shadow: var(--t-elev-2); }
+  .t-elev-3 { box-shadow: var(--t-elev-3); }
+}
+
+/* === 旧设计系统类 → 主题感知别名（保持 JSX 兼容，主题自动切换） === */
+.glass-panel { @apply t-card; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.glass-card { @apply t-card; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.glass-input { @apply t-input; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.btn-primary { @apply t-btn t-btn-primary; }
+.btn-acid { @apply t-btn t-btn-accent; }
+
+/* === 滚动条（主题感知） === */
+.custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--ink); border-radius: 0; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--ash-700); }
+:root[data-theme="classic"] .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--moss); border-radius: 4px; }
+
+/* === Animations === */
+@keyframes fade-in-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate-fade-in-up { animation: fade-in-up 0.4s ease-out; }
+@keyframes scale-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+.animate-scale-in { animation: scale-in 0.3s ease-out; }
+.stagger-1 { animation-delay: 0.05s; } .stagger-2 { animation-delay: 0.1s; } .stagger-3 { animation-delay: 0.15s; } .stagger-4 { animation-delay: 0.2s; } .stagger-5 { animation-delay: 0.25s; }
+
+/* === Markdown 便签 === */
+.markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 800; margin: 0.5em 0 0.25em; line-height: 1.3; }
+.markdown-body h1 { font-size: 1.25em; } .markdown-body h2 { font-size: 1.1em; } .markdown-body h3 { font-size: 1em; }
+.markdown-body p { margin: 0.35em 0; } .markdown-body ul, .markdown-body ol { margin: 0.35em 0; padding-left: 1.25em; }
+.markdown-body ul { list-style: disc; } .markdown-body ol { list-style: decimal; } .markdown-body li { margin: 0.15em 0; }
+.markdown-body strong { font-weight: 800; }
+.markdown-body code { background: rgba(0,0,0,0.07); padding: 0.1em 0.35em; font-size: 0.9em; }
+.markdown-body pre { background: rgba(0,0,0,0.06); padding: 0.6em; overflow-x: auto; margin: 0.4em 0; }
+.markdown-body blockquote { border-left: 3px solid rgba(0,0,0,0.15); padding-left: 0.6em; margin: 0.4em 0; opacity: 0.85; }
+.markdown-body a { text-decoration: underline; } .markdown-body hr { border: 0; border-top: 1px solid rgba(0,0,0,0.12); margin: 0.5em 0; }
+.markdown-body table { border-collapse: collapse; margin: 0.4em 0; font-size: 0.95em; }
+.markdown-body th, .markdown-body td { border: 1px solid rgba(0,0,0,0.12); padding: 0.2em 0.5em; }
+.markdown-body th { background: rgba(0,0,0,0.05); font-weight: 700; }
+.markdown-body input[type="checkbox"] { margin-right: 0.3em; }
+
+@media print { .no-print { display: none !important; } body { background: white; } }
+
+/* === v2.14 classic 主题：全站归一化 retint（让未迁移的 19 个页面也能跟随主题）
+   选择性覆盖最常见的 raw Tailwind 模式 → 与 .t-* 语义类视觉一致
+   范围：圆角/卡片/灰文字/绿强调/分割线/状态底色/阴影；不影响功能/布局/动效 === */
+:root[data-theme="classic"] {
+  /* 圆角：零/小→1rem；xl/2xl/3xl/full→1rem */
+  .rounded-2xl, .rounded-3xl, .rounded-xl, .rounded-full { border-radius: 1rem !important; }
+  .rounded-lg, .rounded-md { border-radius: 0.5rem !important; }
+  .rounded, .rounded-sm { border-radius: 0.375rem !important; }
+
+  /* 卡片白底 → 半透绿白 */
+  .bg-white\/50, .bg-white\/60, .bg-white\/70, .bg-white\/80, .bg-white\/40, .bg-white\/30 { background-color: rgba(255,255,255,0.7) !important; }
+  .bg-white { background-color: #ffffff !important; }
+
+  /* 灰文字 → 主题色 */
+  .text-gray-900, .text-gray-800, .text-gray-700 { color: var(--t-text) !important; }
+  .text-gray-600, .text-gray-500 { color: var(--t-text-soft) !important; }
+  .text-gray-400, .text-gray-300 { color: var(--t-text-dim) !important; }
+
+  /* 浅边框/分割 → 主题淡绿 */
+  .border-gray-200, .border-gray-100, .border-gray-50, .border-white\/60, .border-white\/50, .border-white\/40 { border-color: var(--t-divider) !important; }
+
+  /* 软底色（hover 灰/ash 100）→ 主题卡 */
+  .hover\:bg-gray-50:hover, .hover\:bg-white\/60:hover, .hover\:bg-white\/70:hover, .hover\:bg-ash-100:hover { background-color: rgba(46,125,50,0.06) !important; }
+
+  /* 状态徽章色：保留语义但换成主题色调（绿底绿字/红底红字/蓝底蓝字） */
+  .bg-green-100, .bg-green-50 { background-color: rgba(46,125,50,0.12) !important; }
+  .text-green-700, .text-green-800, .text-green-600 { color: #1B5E20 !important; }
+  .bg-red-50, .bg-red-100 { background-color: rgba(239,68,68,0.1) !important; }
+  .text-red-600, .text-red-500, .text-red-700 { color: #C62828 !important; }
+  .bg-blue-50, .bg-blue-100 { background-color: rgba(59,130,246,0.1) !important; }
+  .text-blue-600, .text-blue-700 { color: #1D4ED8 !important; }
+  .bg-amber-50, .bg-amber-100 { background-color: rgba(245,158,11,0.12) !important; }
+  .text-amber-700, .text-amber-600 { color: #B45309 !important; }
+  .bg-yellow-50, .bg-yellow-100 { background-color: rgba(255,244,79,0.25) !important; }
+
+  /* 硬黄（--acid，#FFF44F）→ 软绿（classic 主色），保留 .t-btn-accent 已自动切换 */
+  .bg-acid, .bg-yellow-300, .bg-yellow-400 { background-color: rgba(46,125,50,0.15) !important; color: #1B5E20 !important; }
+  .text-acid, .text-yellow-500, .text-yellow-600 { color: #1B5E20 !important; }
+
+  /* 软阴影：取代 brutalist 的 4px 4px 0 黑硬阴影 */
+  .shadow-hard, .shadow-hard-lg, .shadow-hard-sm { box-shadow: 0 4px 16px rgba(46,125,50,0.08) !important; }
+  .shadow-2xl, .shadow-xl, .shadow-lg, .shadow-md { box-shadow: 0 4px 12px rgba(46,125,50,0.06) !important; }
+
+  /* 装饰光斑（与 .app-blob 配对） */
+  body { background-image: radial-gradient(circle at 0% 0%, rgba(46,125,50,0.06) 0%, transparent 40%), radial-gradient(circle at 100% 100%, rgba(46,125,50,0.05) 0%, transparent 40%); }
+
+  /* hover 缩进效果：去掉 brutalist 的 transform translate */
+  .hover\:translate-x-\[1px\]:hover, .hover\:translate-y-\[1px\]:hover, .active\:translate-x-\[1px\]:active, .active\:translate-y-\[1px\]:active { transform: none !important; }
+
+  /* v2.14.1：漏收色系 → 主题绿（orange/teal/sky/indigo/purple/pink/violet + 防御性 emerald） */
+  .bg-orange-50, .bg-orange-100, .bg-teal-50, .bg-teal-100, .bg-sky-50, .bg-sky-100,
+  .bg-indigo-50, .bg-indigo-100, .bg-purple-50, .bg-purple-100, .bg-pink-100, .bg-violet-100,
+  .bg-emerald-50, .bg-emerald-100 { background-color: rgba(46,125,50,0.1) !important; }
+  .bg-orange-500, .bg-orange-600, .bg-indigo-500, .bg-indigo-600, .bg-purple-600,
+  .bg-pink-500, .bg-pink-600 { background-color: var(--t-primary) !important; color: #fff !important; }
+  .text-orange-500, .text-orange-600, .text-orange-700, .text-teal-600, .text-teal-700,
+  .text-sky-600, .text-sky-700, .text-indigo-500, .text-indigo-600, .text-purple-300,
+  .text-purple-500, .text-purple-600, .text-purple-700, .text-purple-900,
+  .text-pink-500, .text-pink-700, .text-violet-700 { color: var(--moss) !important; }
+  .border-orange-100, .border-orange-200, .border-teal-200, .border-sky-200,
+  .border-indigo-200, .border-indigo-500, .border-purple-100, .border-purple-200,
+  .border-pink-200, .border-violet-200,
+  .border-teal-200\/50, .border-sky-200\/50, .border-indigo-200\/50 { border-color: var(--t-divider) !important; }
+  /* 紫渐变（Dashboard 统计块）→ classic 实底软绿 */
+  .from-purple-400, .to-purple-600, .via-purple-500 {
+    background-image: none !important; background-color: rgba(46,125,50,0.12) !important;
+  }
+}
+
+/* ═══ v2.14.1 全站控件归一（按钮/输入/标签页，经 token 双主题自动切换） ═══
+   层次：unlayered + !important → 压过 Tailwind utilities 层与 @layer components */
+
+/* 圆角：全站控件统一取主题半径（brutalist=0，classic=1rem）
+   classic 下 retint 块 :root[data-theme="classic"] .rounded-*（扁平化后 0,3,0）!important 会反超元素级基础规则，
+   故以「控件+圆角类」0,3,1 显式回正（rounded-xl/2xl/3xl/full 目标同为 1rem 无需再战） */
+button, input, select, textarea { border-radius: var(--t-card-radius) !important; }
+:root[data-theme="classic"] .rounded-lg:is(button, input, select, textarea),
+:root[data-theme="classic"] .rounded-md:is(button, input, select, textarea),
+:root[data-theme="classic"] .rounded:is(button, input, select, textarea),
+:root[data-theme="classic"] .rounded-sm:is(button, input, select, textarea) {
+  border-radius: var(--t-card-radius) !important;
+}
+
+/* BRUTALIST：所有带 bg-/border- utility 的按钮 → 1.5px 黑硬边（含 hover:bg-* 情形） */
+:root:not([data-theme="classic"]) button[class*="bg-"],
+:root:not([data-theme="classic"]) button[class*="border"] {
+  border: 1.5px solid var(--ink) !important;
+}
+/* BRUTALIST：实色按钮 → 4px 4px 0 招牌硬投影 */
+:root:not([data-theme="classic"]) button[class*="bg-"][class*="-500"],
+:root:not([data-theme="classic"]) button[class*="bg-"][class*="-600"],
+:root:not([data-theme="classic"]) button[class*="bg-"][class*="-700"],
+:root:not([data-theme="classic"]) button[class*="bg-"][class*="-800"],
+:root:not([data-theme="classic"]) button[class*="bg-"][class*="-900"],
+:root:not([data-theme="classic"]) button[class*="bg-black"],
+:root:not([data-theme="classic"]) button[class*="bg-ink"] {
+  box-shadow: 4px 4px 0 var(--ink) !important;
+}
+/* BRUTALIST：输入/下拉/文本域 → 1.5px 黑边（吞掉祖传 rounded-xl 灰边） */
+:root:not([data-theme="classic"]) input:not([type="checkbox"]):not([type="radio"]),
+:root:not([data-theme="classic"]) select,
+:root:not([data-theme="classic"]) textarea {
+  border: 1.5px solid var(--ink) !important;
+}
+/* 例外：透明内嵌输入（登录框内层 fieldCls 等）保持无边框 */
+:root:not([data-theme="classic"]) .bg-transparent,
+:root:not([data-theme="classic"]) .border-none {
+  border: 0 !important;
+}
+
+/* CLASSIC：软边 + 软投影 + 分节器药丸化 */
+:root[data-theme="classic"] button[class*="bg-"],
+:root[data-theme="classic"] button[class*="border"] {
+  border: 1px solid rgba(46,125,50,0.25) !important;
+}
+:root[data-theme="classic"] button {
+  box-shadow: 0 2px 8px rgba(46,125,50,0.08) !important;
+}
+:root[data-theme="classic"] input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme="classic"] select,
+:root[data-theme="classic"] textarea {
+  border: 1px solid rgba(46,125,50,0.15) !important;
+}
+:root[data-theme="classic"] .t-theme-toggle {
+  border-radius: 9999px; border: 1px solid rgba(46,125,50,0.3);
+}
+:root[data-theme="classic"] .t-theme-toggle button { border-radius: 9999px !important; }
+
+/* 复选框/单选框随主题着色 */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--ink); }
+:root[data-theme="classic"] input[type="checkbox"],
+:root[data-theme="classic"] input[type="radio"] { accent-color: var(--moss); }
+
+/* ═══ v2.16 全站形状归一：classic 缺口补收 + brutalist 圆角阴影强制 ═══
+   根因：v2.14.1 只归一了控件（button、input、select、textarea），非控件元素
+  （div、面板、弹窗、徽章、图标容器）的圆角与阴影类在 brutalist 完全失控。 */
+
+/* classic 补收（与 L285+ retint 不重叠；text-amber-800 取 text-amber-700 同值） */
+:root[data-theme="classic"] {
+  .shadow-sm { box-shadow: 0 1px 4px rgba(46,125,50,0.08) !important; }
+  .shadow-inner { box-shadow: none !important; }
+  .border-gray-300, .border-gray-400 { border-color: var(--t-divider) !important; }
+  .text-amber-800, .text-amber-900 { color: #B45309 !important; }
+  [class*="rounded-["] { border-radius: 1rem !important; }
+  [class*="shadow-["] { box-shadow: 0 4px 16px rgba(46,125,50,0.08) !important; }
+}
+
+/* brutalist：所有非控件圆角强制归零（rounded-full 徽章/药丸/头像变方 = 硬边美学） */
+:root:not([data-theme="classic"]) [class*="rounded"] { border-radius: 0 !important; }
+/* 例外：border-trick 加载圈必须保圆（AppContext / PrintModal spinner） */
+:root:not([data-theme="classic"]) .animate-spin[class*="rounded-full"] { border-radius: 9999px !important; }
+/* brutalist：软阴影 → 阶梯硬投影；xl/2xl（弹窗/抽屉/浮层）附 1.5px 黑硬边 */
+:root:not([data-theme="classic"]) .shadow-sm { box-shadow: 2px 2px 0 rgba(10,10,10,0.18) !important; }
+:root:not([data-theme="classic"]) .shadow,
+:root:not([data-theme="classic"]) .shadow-md,
+:root:not([data-theme="classic"]) .shadow-lg { box-shadow: 3px 3px 0 var(--ink) !important; }
+:root:not([data-theme="classic"]) .shadow-xl,
+:root:not([data-theme="classic"]) .shadow-2xl { box-shadow: 4px 4px 0 var(--ink) !important; border: 1.5px solid var(--ink) !important; }
+:root:not([data-theme="classic"]) .shadow-inner { box-shadow: none !important; }
+:root:not([data-theme="classic"]) [class*="shadow-["] { box-shadow: 4px 4px 0 var(--ink) !important; }
+
+/* bt-ghost：飞书幽灵工具按钮（无边框无投影）。
+   必须 button.bt-ghost (0,3,1) 且声明在 v2.14.1 同权重规则之后才能压住；
+   ghost 按钮的 hover:bg-* 会让 button[class*="bg-"] 误加 1.5px 黑边。 */
+:root:not([data-theme="classic"]) button.bt-ghost,
+:root[data-theme="classic"] button.bt-ghost { border: none !important; box-shadow: none !important; }
+
+/* ═══ v2.17 工作台控制室 FX ═══
+   性能预算：持续动效只走 transform 与 opacity（合成层），不在元素上过渡 box-shadow
+   （box-shadow 是 paint 属性，逐帧重绘）。hover 抬升的加深投影由 ::after 预渲染、
+   只过渡其 opacity；resting 投影仍等于 --t-card-shadow（brutalist 4px 4px 0），
+   故 v2141 强制扫描不破。 */
+.t-pod {
+  position: relative;
+  background: var(--t-card-bg); border: var(--t-card-border);
+  border-radius: var(--t-card-radius); box-shadow: var(--t-card-shadow);
+  transition: transform 0.16s ease;
+}
+.t-pod::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  box-shadow: 6px 6px 0 var(--ink); opacity: 0; pointer-events: none;
+  transition: opacity 0.16s ease;
+}
+.t-pod:hover { transform: translateY(-3px); z-index: 2; }
+.t-pod:hover::after { opacity: 1; }
+:root[data-theme="classic"] .t-pod::after { box-shadow: 0 12px 26px rgba(46,125,50,0.16); }
+:root[data-theme="classic"] .t-pod:hover { transform: translateY(-2px); }
+
+/* 一次性入场：折线/环形描边绘制（stroke-dashoffset，元素上给 --cr-len 与 dasharray） */
+@keyframes cr-draw { from { stroke-dashoffset: var(--cr-len, 300); } to { stroke-dashoffset: 0; } }
+.cr-draw { animation: cr-draw 0.9s ease-out forwards; }
+/* 状态脉冲点：transform+opacity，非 box-shadow */
+@keyframes cr-ping { 0% { transform: scale(1); opacity: 0.7; } 75%, 100% { transform: scale(2.4); opacity: 0; } }
+.cr-ping { animation: cr-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
+/* 数字计数防抖动：等宽数字（tabular-nums），避免 rAF 逐帧宽度跳动 */
+.cr-tabnum { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+/* 无障碍：尊重系统「减少动态」偏好，只关装饰动画（保留功能性 animate-spin 加载圈） */
+@media (prefers-reduced-motion: reduce) {
+  .cr-ping, .cr-draw, .animate-ping, .animate-pulse { animation: none !important; }
+  .t-pod, .t-pod::after { transition: none !important; }
+}

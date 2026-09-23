@@ -1,0 +1,17 @@
+{
+  "name": "brc-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP Server for BRC Nexus - lets AI assistants (Claude, workbuddy, Cursor...) query germplasm/traits/inventory/operations via the BRC REST AI gateway",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "brc-mcp-server": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.1"
+  }
+}

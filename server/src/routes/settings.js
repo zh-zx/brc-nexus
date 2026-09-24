@@ -1,4 +1,6 @@
 import { getDb, run, get, all } from '../db/connection.js';
+import { guardedDelete } from '../db/refs.js';
+import { writeAudit } from '../lib/audit.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { saveDb, backupDb } from '../db/connection.js';
 import { clearSettingsCache } from '../db/settings.js';
@@ -73,8 +75,12 @@ export default async function settingsRoutes(fastify) {
     const room = request.body;
     run('UPDATE room SET name = ? WHERE id = ?', [room.name, request.params.id]);
     if (Array.isArray(room.items)) {
+      // v2.19 P0 审计：库存批量替换是「整房间清空重灌」，可静默改动实物数量/种质归属——记录前后快照。
+      const before = all('SELECT germplasm_name, accession_id, quantity, form FROM inventory WHERE room_id = ?', [request.params.id])
+        .map(r => ({ name: r.germplasm_name, accessionId: r.accession_id, qty: r.quantity, form: r.form }));
       run('DELETE FROM inventory WHERE room_id = ?', [request.params.id]);
       const { v4: uuidv4 } = await import('uuid');
+      const after = [];
       for (const item of room.items) {
         // 兼容 camelCase（前端新物品）与 snake_case（历史负载）两种字段名，undefined 统一兜底
         const name = item.germplasmName ?? item.germplasm_name ?? null;
@@ -84,15 +90,29 @@ export default async function settingsRoutes(fastify) {
         if (!name) continue; // 无名称的空物品直接跳过
         run('INSERT INTO inventory (id, accession_id, room_id, germplasm_name, quantity, form, updated_at) VALUES (?, ?, ?, ?, ?, ?, datetime(\'now\'))',
           [item.id || uuidv4(), accId, request.params.id, name, qty, form]);
+        after.push({ name, accessionId: accId, qty, form });
       }
+      writeAudit({
+        table: 'inventory',
+        recordId: request.params.id,
+        action: 'INVENTORY_REPLACE',
+        req: request,
+        before: { roomId: request.params.id, count: before.length, items: before.slice(0, 200) },
+        after: { roomId: request.params.id, count: after.length, items: after.slice(0, 200) },
+      });
     }
     return { success: true };
   });
 
   fastify.delete('/api/rooms/:id', { preHandler: [authMiddleware] }, async (request, reply) => {
     if (request.user.role !== 'admin') return reply.status(403).send({ error: '需要管理员权限' });
-    run('DELETE FROM room WHERE id = ?', [request.params.id]);
-    return { success: true };
+    // v2.19 P0：仍有库存（inventory.room_id）归属该房间 → 拦截，禁止静默销毁实物定位。
+    const before = get('SELECT id, name FROM room WHERE id = ?', [request.params.id]);
+    if (!before) return reply.status(404).send({ error: '房间不存在' });
+    const res = guardedDelete('room', request.params.id);
+    if (res.blocked) return reply.status(400).send({ error: 'FK_BLOCKED', message: '该房间仍有库存物品，无法删除', references: res.blocked });
+    writeAudit({ table: 'room', recordId: before.id, action: 'ROOM_DELETE', req: request, before: { name: before.name } });
+    return { success: true, changes: res.changes };
   });
 
   // Operators

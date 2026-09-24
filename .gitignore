@@ -6,12 +6,13 @@ client/dist/
 client/dev-dist/
 *.tsbuildinfo
 
-# 运行时数据（SQLite 实库 / WAL / 备份 / 上传，均可由代码重建或在部署机本地生成）
+# 运行时数据（SQLite 实库 / WAL / 备份 / 上传 / 进程杂项，均可由代码重建或在部署机本地生成）
 server/data/brc.db
 server/data/brc.db-wal
 server/data/brc.db-shm
 server/data/backups/
 server/data/uploads/
+server/data/server-run.err
 backups/
 
 # 密钥与本地环境

@@ -1,5 +1,7 @@
-import { getDb, all, get, run, exec, saveDb, backupDb } from '../db/connection.js';
+import { getDb, all, get, run, exec, saveDb, backupDb, tx } from '../db/connection.js';
 import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
+import { referrers, applyCascadeDelete, scanOrphans } from '../db/refs.js';
+import { stageRestore, pendingRestore } from '../db/restore.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -64,22 +66,7 @@ function classify(sql) {
   throw new Error('仅支持 SELECT / PRAGMA / INSERT / UPDATE / DELETE');
 }
 
-// 有外键关系的表（完整性检查用）：[子表, 外键列, 父表]
-const FK_CHECKS = [
-  ['inventory', 'accession_id', 'accession'],
-  ['inventory', 'room_id', 'room'],
-  ['subculture_event', 'user_id', 'user'],
-  ['subculture_event', 'accession_id', 'accession'],
-  ['cryo_record', 'accession_id', 'accession'],
-  ['freezer_sample', 'accession_id', 'accession'],
-  ['freezer_movement', 'sample_id', 'freezer_sample'],
-  ['freezer_movement', 'box_id', 'freezer_box'],
-  ['operation_record', 'user_id', 'user'],
-  ['work_order_feedback', 'user_id', 'user'],
-  ['work_order_feedback', 'work_order_id', 'work_order'],
-  ['work_daily_report', 'work_order_id', 'work_order'],
-  ['ai_token', 'created_by', 'user'],
-];
+// 跨表引用关系已移至 ../db/refs.js（FK_REFS，单一事实源）。
 
 function audit(request, action, detail) {
   try {
@@ -88,19 +75,10 @@ function audit(request, action, detail) {
   } catch (e) { /* audit failure must not break the request */ }
 }
 
-// 完整性检查（启动自检 + dbadmin 共用）：PRAGMA integrity_check + 孤儿记录扫描
+// 完整性检查（启动自检 + dbadmin 共用）：PRAGMA integrity_check + 孤儿记录扫描（策略见 refs.js）
 export function runIntegrityCheck() {
   const integrity = all('PRAGMA integrity_check').map(r => Object.values(r)[0]);
-  const orphans = [];
-  for (const [child, col, parent] of FK_CHECKS) {
-    const cols = all(`PRAGMA table_info(${quoteIdent(child)})`);
-    if (!cols.some(c => c.name === col)) continue;
-    const res = all(
-      `SELECT COUNT(*) AS c FROM ${quoteIdent(child)} x WHERE x.${quoteIdent(col)} IS NOT NULL AND x.${quoteIdent(col)} != '' AND NOT EXISTS (SELECT 1 FROM ${quoteIdent(parent)} p WHERE p.id = x.${quoteIdent(col)})`,
-    );
-    const c = normalizeValue(res[0]?.c) || 0;
-    if (c > 0) orphans.push({ child, col, parent, count: c });
-  }
+  const orphans = scanOrphans();
   const ok = integrity.length === 1 && integrity[0] === 'ok' && orphans.length === 0;
   return { ok, integrity, orphans };
 }
@@ -228,19 +206,16 @@ async function rowCrud(request, reply) {
       return { success: true, mode, table: t, recordId: String(keyValue), changes: 1 };
     }
 
-    // delete：FK 反向扫描（FK_CHECKS 中 parent === 本表，用旧行 id 扫子表）
-    const refs = [];
-    for (const [child, col, parent] of FK_CHECKS) {
-      if (parent !== t) continue;
-      const childCols = all(`PRAGMA table_info(${quoteIdent(child)})`).map(c => c.name);
-      if (!childCols.includes(col)) continue;
-      const c = normalizeValue(get(`SELECT COUNT(*) AS c FROM ${quoteIdent(child)} WHERE ${quoteIdent(col)} = ?`, [oldRow.id])?.c) || 0;
-      if (c > 0) refs.push({ child, col, count: c });
+    // delete：FK 反向预检（策略见 refs.js）——block 策略被子表引用则拦截；
+    // cascade/revoke 策略在事务内随本表删除一并处理（从属明细删除 / 令牌撤销）。
+    const blocked = referrers(t, oldRow.id).filter(r => r.strategy === 'block');
+    if (blocked.length) {
+      return reply.status(400).send({ error: 'FK_BLOCKED', message: '存在引用该记录的子表数据，禁止删除', references: blocked });
     }
-    if (refs.length) {
-      return reply.status(400).send({ error: 'FK_BLOCKED', message: '存在引用该记录的子表数据，禁止删除', references: refs });
-    }
-    const r = run(`DELETE FROM ${quoteIdent(t)} WHERE ${quoteIdent(keyCol)} = ?`, [keyValue]);
+    const r = tx((h) => {
+      applyCascadeDelete(h, t, oldRow.id, { ownerUsername: oldRow.username });
+      return h.run(`DELETE FROM ${quoteIdent(t)} WHERE ${quoteIdent(keyCol)} = ?`, [keyValue]);
+    });
     audit(request, 'ROW_DELETE', { table: t, recordId: String(keyValue), before: maskRow(oldRow) });
     return { success: true, mode, table: t, recordId: String(keyValue), changes: Number(r.changes || 0) };
   } catch (e) {
@@ -333,4 +308,29 @@ export default async function dbAdminRoutes(fastify) {
 
   // v2.9：行级增删改（可视化模式）——参数化 + 二次确认 + 审计
   fastify.post('/api/dbadmin/row', pre, rowCrud);
+
+  // ---- v2.19 P0（W4-13）：备份→恢复 ----
+  // 待恢复状态（UI 轮询，显示「已排入恢复，重启后生效」）
+  fastify.get('/api/dbadmin/restore-status', pre, async () => {
+    return { pending: pendingRestore() };
+  });
+
+  // 排入恢复：仅校验备份 + 写待恢复标记，不就地改库（避免 Windows/WAL 损坏）。
+  // 真正的文件替换在下次启动、连接打开前由 applyPendingRestore() 完成 → 需重启服务器。
+  fastify.post('/api/dbadmin/restore', pre, async (request, reply) => {
+    const { filename, confirm } = request.body || {};
+    if (confirm !== true) {
+      return reply.status(400).send({ error: 'RESTORE_CONFIRM_REQUIRED', message: '恢复会整体回退数据库，请二次确认' });
+    }
+    try {
+      const staged = stageRestore(filename, { username: request.user?.username });
+      audit(request, 'RESTAGE_RESTORE', { backup: staged.backup, size: staged.size, restartRequired: true });
+      return {
+        success: true, staged: true, restartRequired: true,
+        backup: staged.backup, message: '恢复已排入，当前库未改动。请重启服务器以生效（重启时会先留底当前库）。',
+      };
+    } catch (e) {
+      return reply.status(400).send({ error: e.code || 'RESTORE_FAILED', message: e.message });
+    }
+  });
 }

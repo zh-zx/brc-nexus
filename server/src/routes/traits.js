@@ -1,5 +1,6 @@
 import { run, get, all } from '../db/connection.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { writeAudit } from '../lib/audit.js';
 
 /**
  * 预置 CIP 性状字典
@@ -163,6 +164,9 @@ export default async function traitRoutes(fastify) {
         illustration || null, descZh || null, descEn || null]
     );
     const row = get('SELECT * FROM trait_def WHERE id = ?', [id]);
+    // v2.19 P0 审计：性状定义增删改会改变全站种质多维表格的字段语义——须留痕（不含大插图 blob）。
+    writeAudit({ table: 'trait_def', recordId: id, action: 'TRAIT_CREATE', req: request,
+      after: { code: row.code, nameZh: row.name_zh, nameEn: row.name_en, category: row.category, valueType: row.value_type, unit: row.unit } });
     return rowToTrait(row);
   });
 
@@ -189,6 +193,9 @@ export default async function traitRoutes(fastify) {
       ]
     );
     const row = get('SELECT * FROM trait_def WHERE id = ?', [request.params.id]);
+    writeAudit({ table: 'trait_def', recordId: request.params.id, action: 'TRAIT_UPDATE', req: request,
+      before: { code: old.code, nameZh: old.name_zh, nameEn: old.name_en, category: old.category, valueType: old.value_type, unit: old.unit },
+      after: { code: row.code, nameZh: row.name_zh, nameEn: row.name_en, category: row.category, valueType: row.value_type, unit: row.unit } });
     return rowToTrait(row);
   });
 

@@ -280,8 +280,12 @@ export default async function mcpRoutes(fastify) {
     const header = String(request.headers.authorization || '');
     const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
     if (!token) return reply.status(401).send(rpcError(null, -32000, '缺少 Bearer 令牌（向管理员索取 API 令牌）'));
-    const row = get('SELECT id, name, role, enabled FROM ai_token WHERE token_hash = ?', [sha256(token)]);
+    const row = get('SELECT id, name, role, enabled, created_by FROM ai_token WHERE token_hash = ?', [sha256(token)]);
     if (!row || !row.enabled) return reply.status(401).send(rpcError(null, -32000, '令牌无效或已停用'));
+    // v2.19 P0 安全：属主账号已删除 → 令牌即刻失效（与 ai.js 一致，堵住孤儿 admin 令牌越权）
+    if (row.created_by && !get('SELECT id FROM user WHERE username = ?', [row.created_by])) {
+      return reply.status(401).send(rpcError(null, -32000, '令牌属主账号已删除，令牌失效'));
+    }
     // 限流
     const rl = checkRateLimit(row.id);
     if (!rl.ok) {

@@ -26,6 +26,20 @@ function sha256(s) {
   return crypto.createHash('sha256').update(s).digest('hex');
 }
 
+// 常量时间字符串比较（长度不等直接 false，避免 timingSafeEqual 抛错/侧信道）
+function timingSafeEqualStr(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+// v2.19 P0 安全：令牌属主（created_by=username）账号若已删除，令牌必须即刻失效。
+function ownerActive(username) {
+  if (!username) return true; // 无属主列（旧数据）不额外拦截
+  return !!get('SELECT id FROM user WHERE username = ?', [username]);
+}
+
 // 旧版单 token（app_setting.ai_api_token）视为 admin 兼容
 function getLegacyAiToken() {
   const row = get("SELECT value FROM app_setting WHERE key = 'ai_api_token'");
@@ -38,16 +52,17 @@ async function aiAuth(request, reply) {
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
   if (!token) return reply.status(401).send({ error: '需要 AI Token' });
   const hash = sha256(token);
-  const row = get('SELECT id, role, enabled FROM ai_token WHERE token_hash = ?', [hash]);
+  const row = get('SELECT id, role, enabled, created_by FROM ai_token WHERE token_hash = ?', [hash]);
   if (row) {
     if (!row.enabled) return reply.status(401).send({ error: '无效的 AI Token' });
+    if (!ownerActive(row.created_by)) return reply.status(401).send({ error: '令牌属主账号已删除，令牌失效' });
     request.aiScope = { tokenId: row.id, role: row.role };
     run('UPDATE ai_token SET last_used_at = datetime(\'now\') WHERE id = ?', [row.id]);
     return;
   }
   // 兼容旧 token（未迁移到角色表的 admin token）
   const legacy = getLegacyAiToken();
-  if (legacy && token === legacy) {
+  if (legacy && timingSafeEqualStr(token, legacy)) {
     request.aiScope = { tokenId: null, role: 'admin', legacy: true };
     return;
   }

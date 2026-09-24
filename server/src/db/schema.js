@@ -770,8 +770,9 @@ export function runMigrations() {
     const legacy = get("SELECT value FROM app_setting WHERE key = 'ai_api_token'")?.value || '';
     if (legacy) {
       const hash = crypto.createHash('sha256').update(legacy).digest('hex');
+      // created_by 置空（非占位用户名）：空属主豁免 owner/孤儿校验，否则默认令牌在 P0 加固下即刻失效
       run('INSERT OR IGNORE INTO ai_token (id, token_hash, name, role, enabled, created_by) VALUES (?,?,?,?,1,?)',
-        [crypto.randomUUID(), hash, '默认管理员令牌', 'admin', 'system']);
+        [crypto.randomUUID(), hash, '默认管理员令牌', 'admin', '']);
     }
   }
 

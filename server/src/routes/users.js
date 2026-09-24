@@ -1,4 +1,5 @@
-import { getDb, run, get, all } from '../db/connection.js';
+import { getDb, run, get, all, tx } from '../db/connection.js';
+import { applyCascadeDelete } from '../db/refs.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
@@ -86,7 +87,12 @@ export default async function usersRoutes(fastify) {
       const admins = get("SELECT COUNT(*) as c FROM user WHERE role = 'admin'");
       if ((admins?.c || 0) <= 1) return reply.status(400).send({ error: '系统至少保留一名管理员' });
     }
-    run('DELETE FROM user WHERE id = ?', [id]);
+    // v2.19 P0：删用户在事务内按策略处理子引用——撤销其 ai_token（enabled=0，保留台账），
+    // operation_record/work_order_feedback 为 audit 策略保留为历史留痕；审计/登录日志一律不删。
+    tx((h) => {
+      applyCascadeDelete(h, 'user', id, { ownerUsername: user.username });
+      h.run('DELETE FROM user WHERE id = ?', [id]);
+    });
     return { success: true };
   });
 

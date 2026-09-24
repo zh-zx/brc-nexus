@@ -1,4 +1,4 @@
-import { get, all, run } from '../db/connection.js';
+import { get, all, run, tx } from '../db/connection.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 function getCfg() {
@@ -189,10 +189,13 @@ export default async function freezerRoutes(fastify) {
     if (dup) return reply.status(400).send({ error: '目标位置已被占用' });
     const fromLoc = oldBox ? locCode(cfg, oldBox.freezer_no, oldBox.shelf_no, oldBox.drawer_no, oldBox.box_no, sample.position_no) : '';
     const toLoc = locCode(cfg, targetBox.freezer_no, targetBox.shelf_no, targetBox.drawer_no, targetBox.box_no, tp);
-    run('UPDATE freezer_sample SET box_id = ?, position_no = ?, updated_at = datetime(\'now\') WHERE id = ?', [targetBox.id, tp, sampleId]);
     const { v4: uuidv4 } = await import('uuid');
-    run('INSERT INTO freezer_movement (id, box_id, sample_id, action, from_loc, to_loc, operator, user_id) VALUES (?,?,?,?,?,?,?,?)',
-      [uuidv4(), targetBox.id, sampleId, 'MOVE', fromLoc, toLoc, operator || request.user?.username || '', request.user?.id || '']);
+    // v2.19 P0：位移 + 台账写入原子化，避免中途崩溃导致「样品已移动但无 movement 记录」。
+    tx((h) => {
+      h.run('UPDATE freezer_sample SET box_id = ?, position_no = ?, updated_at = datetime(\'now\') WHERE id = ?', [targetBox.id, tp, sampleId]);
+      h.run('INSERT INTO freezer_movement (id, box_id, sample_id, action, from_loc, to_loc, operator, user_id) VALUES (?,?,?,?,?,?,?,?)',
+        [uuidv4(), targetBox.id, sampleId, 'MOVE', fromLoc, toLoc, operator || request.user?.username || '', request.user?.id || '']);
+    });
     audit('freezer_sample', sampleId, 'MOVE', { from: fromLoc, reason: reason || '' }, { to: toLoc }, request);
     return { success: true, from: fromLoc, to: toLoc };
   });
@@ -206,11 +209,16 @@ export default async function freezerRoutes(fastify) {
     if (!sample) return reply.status(404).send({ error: '未找到样品' });
     const box = get('SELECT * FROM freezer_box WHERE id = ?', [sample.box_id]);
     const fromLoc = box ? locCode(cfg, box.freezer_no, box.shelf_no, box.drawer_no, box.box_no, sample.position_no) : '';
-    run('DELETE FROM freezer_sample WHERE id = ?', [sampleId]);
     const { v4: uuidv4 } = await import('uuid');
-    run('INSERT INTO freezer_movement (id, box_id, sample_id, action, from_loc, to_loc, operator, user_id) VALUES (?,?,?,?,?,?,?,?)',
-      [uuidv4(), box?.id || null, sampleId, 'OUT', fromLoc, null, operator || request.user?.username || '', request.user?.id || '']);
-    audit('freezer_sample', sampleId, 'CHECKOUT', { quantity, destination: destination || '' }, null, request);
+    const movementId = uuidv4();
+    // v2.19 P0：出库台账 + 样品移除原子化。先写 OUT（此刻样品仍在），再删样品；
+    // movement.sample_id 指向已删样品属有意的历史留痕（refs.js 中该关系为 audit 策略，不计孤儿）。
+    tx((h) => {
+      h.run('INSERT INTO freezer_movement (id, box_id, sample_id, action, from_loc, to_loc, operator, user_id) VALUES (?,?,?,?,?,?,?,?)',
+        [movementId, box?.id || null, sampleId, 'OUT', fromLoc, null, operator || request.user?.username || '', request.user?.id || '']);
+      h.run('DELETE FROM freezer_sample WHERE id = ?', [sampleId]);
+    });
+    audit('freezer_sample', sampleId, 'CHECKOUT', { quantity, destination: destination || '', movementId }, null, request);
     return { success: true, from: fromLoc };
   });
 

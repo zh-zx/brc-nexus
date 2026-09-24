@@ -2,6 +2,7 @@ import { getDb, run, get, all, exec } from '../db/connection.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { signToken, authMiddleware } from '../middleware/auth.js';
+import { loginIpCheck, loginIpHit, loginIpReset } from '../middleware/ipLimit.js';
 import { getSettingBool, getSettingInt } from '../db/settings.js';
 
 // 登录审计（受 auth.audit_login 门控；失败/锁定始终记录以保证锁定计数）
@@ -28,9 +29,15 @@ export default async function authRoutes(fastify) {
   });
 
   fastify.post('/api/auth/setup', async (request, reply) => {
+    const ip = request.ip || '';
+    const gate = loginIpCheck(ip);
+    if (!gate.allowed) {
+      reply.header('Retry-After', String(gate.retryAfter));
+      return reply.status(429).send({ error: '尝试过多，请稍后再试', retryAfter: gate.retryAfter });
+    }
     const { username, password, displayName } = request.body;
-    if (!username || !password) return reply.status(400).send({ error: '用户名和密码不能为空' });
-    if (password.length < 6) return reply.status(400).send({ error: '密码至少6位' });
+    if (!username || !password) { loginIpHit(ip); return reply.status(400).send({ error: '用户名和密码不能为空' }); }
+    if (password.length < 6) { loginIpHit(ip); return reply.status(400).send({ error: '密码至少6位' }); }
 
     const existing = get("SELECT id FROM user WHERE role = 'admin'");
     if (existing) return reply.status(400).send({ error: '管理员已存在，不能重复创建' });
@@ -38,6 +45,7 @@ export default async function authRoutes(fastify) {
     const id = uuidv4();
     const hash = await bcrypt.hash(password, 10);
     run('INSERT INTO user (id, username, password_hash, role, display_name, user_type, status) VALUES (?, ?, ?, ?, ?, ?, ?)', [id, username, hash, 'admin', displayName || username, 'operator', 'active']);
+    loginIpReset(ip);
     const token = signToken({ id, username, role: 'admin', user_type: 'operator' });
     return { token, user: { id, username, role: 'admin', display_name: displayName || username, user_type: 'operator' } };
   });
@@ -72,20 +80,31 @@ export default async function authRoutes(fastify) {
     if (!username || !password) return reply.status(400).send({ error: '请输入用户名和密码' });
     const ip = request.ip || '';
 
+    // v2.19 P0：IP 维度限流——堵住「同一 IP 换用户名撞库」（现有仅按用户名锁定）。
+    const gate = loginIpCheck(ip);
+    if (!gate.allowed) {
+      logLogin(username, 'login_throttled', `IP 限流（窗口内 ${gate.count} 次失败尝试）`, ip);
+      reply.header('Retry-After', String(gate.retryAfter));
+      return reply.status(429).send({ error: '登录尝试过多，请稍后再试', retryAfter: gate.retryAfter });
+    }
+
     const lock = isLocked(username);
     if (lock) {
+      loginIpHit(ip);
       logLogin(username, 'locked', `账号锁定至 ${lock.locked_until}`, ip);
       return reply.status(423).send({ error: '账号已锁定，请稍后再试', lockedUntil: lock.locked_until });
     }
 
     const user = get('SELECT * FROM user WHERE username = ?', [username]);
     if (!user) {
+      loginIpHit(ip);
       logLogin(username, 'login_failed', '用户不存在', ip);
       return reply.status(401).send({ error: '用户名或密码错误' });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      loginIpHit(ip);
       logLogin(username, 'login_failed', '密码错误', ip, user.id);
       // 失败计数 → 锁定（注意 login_log.created_at 为 SQLite datetime 格式，窗口起点需同格式比较）
       const maxFailures = getSettingInt('auth.max_login_failures', 5);
@@ -116,6 +135,7 @@ export default async function authRoutes(fastify) {
     }
 
     run("UPDATE user SET last_login_at = datetime('now') WHERE id = ?", [user.id]);
+    loginIpReset(ip);
     logLogin(username, 'login', '登录成功', ip, user.id);
     const token = signToken(user);
     return {

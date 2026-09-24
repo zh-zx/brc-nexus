@@ -57,6 +57,20 @@ export function exec(sql) {
   d.exec(sql);
 }
 
+// 事务包装：fn 收到一个 {run,get,all} 句柄，抛错自动回滚。node:sqlite 为单连接串行，直接 BEGIN/COMMIT 安全。
+export function tx(fn) {
+  const d = getDb();
+  d.exec('BEGIN');
+  try {
+    const r = fn({ run: (sql, params = []) => d.prepare(sql).run(...bindParams(params)), get: (sql, params = []) => d.prepare(sql).get(...bindParams(params)), all: (sql, params = []) => d.prepare(sql).all(...bindParams(params)) });
+    d.exec('COMMIT');
+    return r;
+  } catch (e) {
+    try { d.exec('ROLLBACK'); } catch (_) { /* ignore */ }
+    throw e;
+  }
+}
+
 // WAL 下数据即时落盘，无需定时整库导出；保留此函数仅供旧调用方兼容
 export function saveDb() {
   if (!db) return;

@@ -8,11 +8,12 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initDb, saveDb, backupDb } from './db/connection.js';
 import { runMigrations } from './db/schema.js';
+import { applyPendingRestore } from './db/restore.js';
 import { getSettingBool, getSettingInt } from './db/settings.js';
 import authRoutes from './routes/auth.js';
 import accessionRoutes from './routes/accessions.js';
 import excelRoutes from './routes/excel.js';
-import printRoutes from './routes/print.js';
+import printRoutes, { checkPrintAgentToken } from './routes/print.js';
 import settingsRoutes from './routes/settings.js';
 import traitRoutes from './routes/traits.js';
 import queryRoutes from './routes/query.js';
@@ -30,6 +31,7 @@ import workOrderRoutes, { checkWorkOrderOverdue, checkWorkOrderStepReminder } fr
 import inspectionRoutes, { checkInspectionRenewal } from './routes/inspections.js';
 import mySettingsRoutes from './routes/mySettings.js';
 import dbAdminRoutes, { runIntegrityCheck } from './routes/dbadmin.js';
+import auditRoutes from './routes/audit.js';
 import mcpRoutes from './routes/mcp.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,6 +68,12 @@ function startAutoBackup() {
 }
 
 async function main() {
+  // 恢复落地（W4-13）：若存在待恢复标记，在打开任何连接前完成文件替换（Windows/WAL 安全）。
+  try {
+    const r = applyPendingRestore();
+    if (r?.restored) console.log(`[restore] 已从备份 ${r.backup} 恢复（留底：${r.safety || '无'}，排期人：${r.stagedBy || '?'}）`);
+    else if (r?.aborted) console.warn(`[restore] ${r.reason}`);
+  } catch (e) { console.error('[restore] 应用待恢复标记失败:', e.message); }
   // Initialize database (node:sqlite 原生 SQLite，WAL 即时落盘)
   await initDb();
   // Run database migrations
@@ -102,9 +110,29 @@ async function main() {
     try { checkInspectionRenewal(); } catch (e) { console.error('[inspection-renewal] error:', e.message); }
   }, 60000);
 
+  // 组装 Fastify 应用（不监听端口）；main() 负责 initDb/自检后调用，测试用 fastify.inject 直接注入。
+  // integrityWarnings 由 main 的启动自检传入，注入 /api/health 告警字段（测试场景可省略）。
+  const app = await buildApp({ integrityWarnings });
+  // Start server
+  try {
+    const host = '0.0.0.0'; // Listen on all interfaces for LAN access
+    await app.listen({ port: PORT, host });
+    console.log(`\n========================================`);
+    console.log(`  BRC Nexus v2 Server`);
+    console.log(`  Local:    http://localhost:${PORT}`);
+    console.log(`  LAN:      http://<your-ip>:${PORT}`);
+    console.log(`  API Docs: http://localhost:${PORT}/api/health`);
+    console.log(`========================================\n`);
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
+}
+
+export async function buildApp({ integrityWarnings = null } = {}) {
   const fastify = Fastify({
     logger: {
-      level: 'info'
+      level: process.env.BRC_LOG_LEVEL || 'info'
     }
   });
 
@@ -139,6 +167,15 @@ async function main() {
   // WebSocket endpoint for print agents
   fastify.register(async function (fastify) {
     fastify.get('/ws/print-agent', { websocket: true }, (socket, req) => {
+      // v2.19 P0：握手鉴权（共享密钥 print.agent_token，经 ?token= 传入）。未授权则拒绝，
+      // 阻止任意 LAN 主机抢先冒充代理、截获发往真实打印机的标签内容。
+      let agentToken = '';
+      try { agentToken = new URL(req.url, 'http://localhost').searchParams.get('token') || ''; } catch { agentToken = ''; }
+      if (!checkPrintAgentToken(agentToken).ok) {
+        fastify.log.warn('拒绝未授权打印代理连接');
+        try { socket.close(4001, 'unauthorized'); } catch { /* ignore */ }
+        return;
+      }
       fastify.printAgent = socket;
 
       socket.on('message', (data) => {
@@ -183,6 +220,7 @@ async function main() {
   await fastify.register(inspectionRoutes);
   await fastify.register(mySettingsRoutes);
   await fastify.register(dbAdminRoutes);
+  await fastify.register(auditRoutes);
 
   // Health check（附启动自检告警）
   fastify.get('/api/health', async () => {
@@ -221,20 +259,9 @@ async function main() {
     });
   }
 
-  // Start server
-  try {
-    const host = '0.0.0.0'; // Listen on all interfaces for LAN access
-    await fastify.listen({ port: PORT, host });
-    console.log(`\n========================================`);
-    console.log(`  BRC Nexus v2 Server`);
-    console.log(`  Local:    http://localhost:${PORT}`);
-    console.log(`  LAN:      http://<your-ip>:${PORT}`);
-    console.log(`  API Docs: http://localhost:${PORT}/api/health`);
-    console.log(`========================================\n`);
-  } catch (err) {
-    fastify.log.error(err);
-    process.exit(1);
-  }
+  return fastify;
 }
 
-main();
+// 直跑入口才启动服务器；作为模块被测试导入（buildApp）时只导出工厂。
+const isEntry = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+if (isEntry) main();

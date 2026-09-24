@@ -1,4 +1,4 @@
-import { get, all, run } from '../db/connection.js';
+import { get, all, run, tx } from '../db/connection.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { readOnlyGuard } from '../middleware/permissions.js';
 import { getSettingInt } from '../db/settings.js';
@@ -476,9 +476,14 @@ export default async function workOrderRoutes(fastify) {
     const order = get('SELECT * FROM work_order WHERE id = ?', [request.params.id]);
     if (!order) return reply.status(404).send({ error: '工单不存在' });
     if (order.status !== 'pending') return reply.status(400).send({ error: '仅待处理工单可删除，其他状态请使用取消' });
-    run('DELETE FROM work_order_feedback WHERE work_order_id = ?', [order.id]);
-    run('DELETE FROM work_order_assignee WHERE work_order_id = ?', [order.id]);
-    run('DELETE FROM work_order WHERE id = ?', [order.id]);
+    // v2.19 P0：删除本体 + 从属明细（feedback/daily_report/assignee）原子化，并补齐漏清的
+    // work_daily_report（原仅清 feedback+assignee，日报会悬空）。策略同 refs.js：均为 cascade。
+    tx((h) => {
+      h.run('DELETE FROM work_order_feedback WHERE work_order_id = ?', [order.id]);
+      h.run('DELETE FROM work_daily_report WHERE work_order_id = ?', [order.id]);
+      h.run('DELETE FROM work_order_assignee WHERE work_order_id = ?', [order.id]);
+      h.run('DELETE FROM work_order WHERE id = ?', [order.id]);
+    });
     run('INSERT INTO audit_log (table_name, record_id, action, before_json, after_json, user_id, username) VALUES (?,?,?,?,?,?,?)',
       ['work_order', order.id, 'DELETE', null, JSON.stringify({ woNo: order.wo_no }), request.user.id, request.user.username]);
     return { success: true };

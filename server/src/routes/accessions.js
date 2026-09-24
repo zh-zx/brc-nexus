@@ -1,4 +1,6 @@
 import { getDb, run, get, all } from '../db/connection.js';
+import { guardedDelete } from '../db/refs.js';
+import { writeAudit } from '../lib/audit.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { canApprove, readOnlyGuard } from '../middleware/permissions.js';
 import * as XLSX from 'xlsx';
@@ -240,8 +242,15 @@ export default async function accessionRoutes(fastify) {
 
   fastify.delete('/api/accessions/:id', { preHandler: [authMiddleware] }, async (request, reply) => {
     if (request.user.role !== 'admin') return reply.status(403).send({ error: '需要管理员权限' });
-    run('DELETE FROM accession WHERE id = ?', [request.params.id]);
-    return { success: true };
+    // v2.19 P0：有库存(inventory)或冻存样本(freezer_sample)归属该种质 → 拦截（BRC 不得静默销毁实物）。
+    // subculture_event 为 audit 策略，删种质后保留为历史悬空留痕，不拦截。
+    const acc = get('SELECT id, primary_id, display_name, species, origin FROM accession WHERE id = ?', [request.params.id]);
+    if (!acc) return reply.status(404).send({ error: '种质不存在' });
+    const res = guardedDelete('accession', request.params.id);
+    if (res.blocked) return reply.status(400).send({ error: 'FK_BLOCKED', message: '该种质仍有库存/冻存样本，无法删除', references: res.blocked });
+    writeAudit({ table: 'accession', recordId: acc.id, action: 'ACCESSION_DELETE', req: request,
+      before: { primaryId: acc.primary_id, displayName: acc.display_name, species: acc.species, origin: acc.origin } });
+    return { success: true, changes: res.changes };
   });
 
   // ---- v2.6 批量修改（管理员 + 审批员） ----

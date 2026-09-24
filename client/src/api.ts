@@ -454,6 +454,20 @@ export const api = {
     return request<{ logs: any[]; total: number; page: number }>(`/api/login-log?${params}`);
   },
 
+  // v2.19 P0 审计台账（admin）：分页 + 过滤（表/动作/用户/日期/关键字）
+  async getAuditLog(filters: { table?: string; action?: string; user?: string; from?: string; to?: string; q?: string; page?: number; pageSize?: number } = {}) {
+    const params = new URLSearchParams();
+    if (filters.table) params.set('table', filters.table);
+    if (filters.action) params.set('action', filters.action);
+    if (filters.user) params.set('user', filters.user);
+    if (filters.from) params.set('from', filters.from);
+    if (filters.to) params.set('to', filters.to);
+    if (filters.q) params.set('q', filters.q);
+    if (filters.page) params.set('page', String(filters.page));
+    if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+    return request<{ logs: any[]; total: number; page: number; pageSize: number; facets: { tables: string[]; actions: string[] } }>(`/api/audit-log?${params}`);
+  },
+
   // Messages
   async getMessages(opts: { unread?: boolean; page?: number; pageSize?: number } = {}) {
     const params = new URLSearchParams();

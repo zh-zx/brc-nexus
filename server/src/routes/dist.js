@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { canApprove, readOnlyGuard } from '../middleware/permissions.js';
 import { getSettingInt, getSettingJson } from '../db/settings.js';
 import { pushMessage } from '../lib/messages.js';
+import { writeAudit } from '../lib/audit.js';
 
 function genReqNo(prefix) {
   const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -266,6 +267,18 @@ export default async function distRoutes(fastify) {
     const id = uuidv4();
     run('INSERT INTO dist_order (id, request_id, pickup_method, logistics_no, handler, items_json, shipped_at, status, created_at) VALUES (?,?,?,?,?,?,datetime(\'now\'),?,?)',
       [id, requestId, pickupMethod || 'self', logisticsNo || '', handler || '', JSON.stringify(Array.isArray(items) ? items : []), 'issued', new Date().toISOString()]);
+    // v2.19 P0 审计：分发实物发放（出库）事件——种质/数量/物流/经办，实物问责链关键环。
+    writeAudit({
+      table: 'dist_order',
+      recordId: id,
+      action: 'DIST_ORDER',
+      req: request,
+      after: {
+        requestId, reqNo: req.req_no, pickupMethod: pickupMethod || 'self',
+        logisticsNo: logisticsNo || '', handler: handler || '',
+        items: (Array.isArray(items) ? items : []).slice(0, 200),
+      },
+    });
     pushMessage({ user_id: req.created_by ? (get('SELECT id FROM user WHERE username = ?', [req.created_by])?.id || null) : null, type: 'dist_order', title: '分发任务单已生成', title_en: 'Distribution Order Created', body: `申请 ${req.req_no} 已生成分发任务单`, body_en: `Order created for ${req.req_no}`, ref_table: 'dist_request', ref_id: requestId });
     return { success: true, id };
   });

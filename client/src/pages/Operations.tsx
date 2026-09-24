@@ -4,10 +4,30 @@ import { api } from '../api';
 import { t } from '../utils';
 import { Search, Download, Plus, Trash2, Save, ClipboardList, Settings, Lock, X, ChevronRight, Clock, Camera, MessageSquarePlus, FileText } from 'lucide-react';
 
+// 审计 before/after JSON：pretty 供展开态 <pre>（缩进 JSON），fmtAudit 供折叠态 summary（单行紧凑摘要）
+function pretty(json: any): string {
+  if (json == null || json === '') return '';
+  try { return JSON.stringify(typeof json === 'string' ? JSON.parse(json) : json, null, 2); }
+  catch { return String(json); }
+}
+function fmtAudit(json: any): string {
+  if (json == null || json === '') return '—';
+  let obj: any = json;
+  try { if (typeof json === 'string') obj = JSON.parse(json); } catch { return String(json).slice(0, 60); }
+  if (obj && typeof obj === 'object') {
+    const parts = Object.entries(obj)
+      .filter(([, v]) => v != null && v !== '')
+      .slice(0, 4)
+      .map(([k, v]) => `${k}=${typeof v === 'object' ? '{…}' : String(v)}`);
+    return parts.length ? parts.join(' · ') : '—';
+  }
+  return String(obj).slice(0, 60);
+}
+
 const Operations: React.FC = () => {
   const { language, user } = useApp();
   const isAdmin = user?.role === 'admin';
-  const [tab, setTab] = useState<'query' | 'config'>('query');
+  const [tab, setTab] = useState<'query' | 'config' | 'audit'>('query');
 
   // ---- Query tab ----
   const [modules, setModules] = useState<string[]>([]);
@@ -38,6 +58,14 @@ const Operations: React.FC = () => {
   const [cfgModule, setCfgModule] = useState('tissue_culture');
   const [editing, setEditing] = useState<any | null>(null);
 
+  // ---- Audit tab (admin, v2.19 P0 审计台账) ----
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditFacets, setAuditFacets] = useState<{ tables: string[]; actions: string[] }>({ tables: [], actions: [] });
+  const [auditFilters, setAuditFilters] = useState<{ table: string; action: string; user: string; from: string; to: string; q: string }>(
+    { table: '', action: '', user: '', from: '', to: '', q: '' });
+
   const loadSteps = useCallback(async () => {
     const res = await api.getOperationSteps();
     setSteps(res.steps || []);
@@ -54,6 +82,15 @@ const Operations: React.FC = () => {
   useEffect(() => { loadSteps(); }, [loadSteps]);
   useEffect(() => { loadRecords(); }, [loadRecords]);
   useEffect(() => { if (tab === 'config') { api.getOperationSteps(cfgModule).then(r => setCfgSteps(r.steps || [])); } }, [tab, cfgModule]);
+
+  const loadAudit = useCallback(async () => {
+    const res = await api.getAuditLog({ ...auditFilters, page: auditPage, pageSize: 20 });
+    setAuditLogs(res.logs || []);
+    setAuditTotal(res.total || 0);
+    if (res.facets) setAuditFacets(res.facets);
+  }, [auditFilters, auditPage]);
+  useEffect(() => { if (tab === 'audit' && isAdmin) { loadAudit(); } }, [tab, isAdmin, loadAudit]);
+  const resetAuditFilters = () => { setAuditFilters({ table: '', action: '', user: '', from: '', to: '', q: '' }); setAuditPage(1); };
 
   const stepTitle = (s: any) => (language === 'zh' ? s?.title : s?.titleEn || s?.title);
   const stepByCode = (code: string) => steps.find(s => s.code === code);
@@ -175,6 +212,11 @@ const Operations: React.FC = () => {
           {isAdmin && (
             <button onClick={() => setTab('config')} className={`t-btn px-4 py-2.5 ${tab === 'config' ? 't-btn-primary' : 't-btn-outline'}`}>
               {t('ops.config', language)}
+            </button>
+          )}
+          {isAdmin && (
+            <button onClick={() => { setTab('audit'); if (auditLogs.length === 0) loadAudit(); }} className={`t-btn px-4 py-2.5 ${tab === 'audit' ? 't-btn-primary' : 't-btn-outline'}`}>
+              {t('ops.audit', language)}
             </button>
           )}
         </div>
@@ -373,6 +415,100 @@ const Operations: React.FC = () => {
             ))}
           </div>
         </div>
+      )}
+
+      {tab === 'audit' && isAdmin && (
+        <>
+          {/* Audit filters */}
+          <div className="glass-card p-4 rounded-2xl">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-2 items-end">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('ops.auditTable', language)}</label>
+                <select value={auditFilters.table} onChange={e => { setAuditFilters({ ...auditFilters, table: e.target.value }); setAuditPage(1); }} className="w-full glass-input rounded-lg px-2 py-2 text-sm">
+                  <option value="">{t('ops.all', language)}</option>
+                  {auditFacets.tables.map(x => <option key={x} value={x}>{x}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('ops.auditAction', language)}</label>
+                <select value={auditFilters.action} onChange={e => { setAuditFilters({ ...auditFilters, action: e.target.value }); setAuditPage(1); }} className="w-full glass-input rounded-lg px-2 py-2 text-sm">
+                  <option value="">{t('ops.all', language)}</option>
+                  {auditFacets.actions.map(x => <option key={x} value={x}>{x}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('ops.operator', language)}</label>
+                <input type="text" value={auditFilters.user} onChange={e => setAuditFilters({ ...auditFilters, user: e.target.value })} className="w-full glass-input rounded-lg px-2 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('ops.from', language)}</label>
+                <input type="date" value={auditFilters.from} onChange={e => setAuditFilters({ ...auditFilters, from: e.target.value })} className="w-full glass-input rounded-lg px-2 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('ops.to', language)}</label>
+                <input type="date" value={auditFilters.to} onChange={e => setAuditFilters({ ...auditFilters, to: e.target.value })} className="w-full glass-input rounded-lg px-2 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase block mb-1">{t('ops.auditKeyword', language)}</label>
+                <input type="text" value={auditFilters.q} onChange={e => setAuditFilters({ ...auditFilters, q: e.target.value })} className="w-full glass-input rounded-lg px-2 py-2 text-sm" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setAuditPage(1); loadAudit(); }} className="flex-1 btn-primary px-3 py-2 rounded-lg text-xs font-bold"><Search className="w-4 h-4 inline mr-1" />{t('ops.search', language)}</button>
+                <button onClick={resetAuditFilters} className="t-btn t-btn-outline px-3 py-2 text-xs">{t('ops.reset', language)}</button>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-gray-400">{t('ops.auditTotal', language)}: {auditTotal}</div>
+          </div>
+
+          {/* Audit table */}
+          <div className="glass-card rounded-2xl overflow-hidden">
+            {auditLogs.length === 0 ? (
+              <div className="p-10 text-center text-gray-400 text-sm">{t('ops.noData', language)}</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-500 text-xs">
+                    <th className="px-4 py-3 text-left font-bold">{t('ops.auditTime', language)}</th>
+                    <th className="px-4 py-3 text-left font-bold">{t('ops.auditTable', language)}</th>
+                    <th className="px-4 py-3 text-left font-bold">{t('ops.auditAction', language)}</th>
+                    <th className="px-4 py-3 text-left font-bold">{t('ops.auditRecord', language)}</th>
+                    <th className="px-4 py-3 text-left font-bold">{t('ops.operator', language)}</th>
+                    <th className="px-4 py-3 text-left font-bold">{t('ops.auditDetail', language)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map(r => (
+                    <tr key={r.id} className="border-t border-gray-50 align-top hover:bg-green-50/30">
+                      <td className="px-4 py-2.5 text-gray-600 whitespace-nowrap text-xs">{r.timestamp ? new Date(r.timestamp.replace(' ', 'T') + 'Z').toLocaleString() : ''}</td>
+                      <td className="px-4 py-2.5 text-gray-700 font-medium whitespace-nowrap text-xs">{r.table_name}</td>
+                      <td className="px-4 py-2.5"><span className="tone-neutral text-xs px-1.5 py-0.5 rounded">{r.action}</span></td>
+                      <td className="px-4 py-2.5 text-gray-500 text-xs font-mono truncate max-w-[140px]" title={r.record_id || ''}>{r.record_id || '-'}</td>
+                      <td className="px-4 py-2.5 text-gray-700 text-xs whitespace-nowrap">{r.username || '-'}</td>
+                      <td className="px-4 py-2.5 text-xs">
+                        <details>
+                          <summary className="cursor-pointer text-gray-400 hover:text-gray-600 select-none">{fmtAudit(r.before_json)} → {fmtAudit(r.after_json)}</summary>
+                          <div className="mt-2 space-y-1">
+                            {r.before_json && <pre className="bg-gray-50 rounded-lg p-2 text-[11px] whitespace-pre-wrap break-all max-h-40 overflow-auto">{pretty(r.before_json)}</pre>}
+                            {r.after_json && <pre className="bg-green-50/60 rounded-lg p-2 text-[11px] whitespace-pre-wrap break-all max-h-40 overflow-auto">{pretty(r.after_json)}</pre>}
+                          </div>
+                        </details>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {auditTotal > 20 && (
+              <div className="px-4 py-3 flex justify-between items-center border-t border-gray-100">
+                <span className="text-xs text-gray-400">{auditPage}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setAuditPage(Math.max(1, auditPage - 1))} className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-xs font-bold text-gray-600 disabled:opacity-40" disabled={auditPage <= 1}>←</button>
+                  <button onClick={() => setAuditPage(auditPage + 1)} className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-xs font-bold text-gray-600 disabled:opacity-40" disabled={auditPage * 20 >= auditTotal}>→</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* Detail drawer */}

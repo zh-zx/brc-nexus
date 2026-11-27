@@ -268,3 +268,52 @@ test('W2-8 孤儿：enabled=1 悬空令牌算孤儿；对账撤销后 orphans:[]
   assert.equal(hb.status, 'ok');
   assert.ok(!hb.warnings || !hb.warnings.integrity, '健康端点不应有完整性告警');
 });
+
+// ---------- Excel 导入契约（v2.19 修复：upload 必须回传完整 rows，否则前端 IMPORT 静默无效） ----------
+
+test('Excel 契约：/api/excel/upload 回传完整 rows；/api/excel/import 入库且 skip 模式幂等', async () => {
+  const XLSX = await import('xlsx');
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet([
+    { cccapNo: 'T-E2E-1', name: '契约测试品种1', species: 'S. tuberosum', origin: 'Peru' },
+    { cccapNo: 'T-E2E-2', name: '契约测试品种2', species: 'S. tuberosum', origin: 'Kenya' },
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const xbuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  const boundary = '----brc' + crypto.randomBytes(8).toString('hex');
+  const mp = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="t.xlsx"\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`),
+    xbuf,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  const up = await app.inject({
+    method: 'POST', url: '/api/excel/upload',
+    headers: { ...bearer(adminToken), 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: mp,
+  });
+  assert.equal(up.statusCode, 200, up.body);
+  const upBody = up.json();
+  assert.equal(upBody.totalRows, 2);
+  assert.ok(Array.isArray(upBody.rows) && upBody.rows.length === upBody.totalRows,
+    'upload 响应必须含完整 rows（前端 excelRows 依赖它，缺失则 IMPORT 静默无效）');
+  assert.equal(upBody.detected.id, 'cccapNo');
+
+  const imp = await app.inject({
+    method: 'POST', url: '/api/excel/import', headers: adminHeaders(),
+    payload: { rows: upBody.rows, mapping: upBody.detected, mode: 'skip' },
+  });
+  assert.equal(imp.statusCode, 200, imp.body);
+  assert.equal(imp.json().inserted, 2);
+
+  // 幂等：同数据再导一次，skip 模式应全部跳过
+  const imp2 = await app.inject({
+    method: 'POST', url: '/api/excel/import', headers: adminHeaders(),
+    payload: { rows: upBody.rows, mapping: upBody.detected, mode: 'skip' },
+  });
+  assert.equal(imp2.statusCode, 200, imp2.body);
+  assert.equal(imp2.json().skipped, 2);
+
+  const inDb = get("SELECT COUNT(*) AS c FROM accession WHERE id IN ('T-E2E-1','T-E2E-2')").c;
+  assert.equal(inDb, 2, '两条契约测试种质应入库');
+});

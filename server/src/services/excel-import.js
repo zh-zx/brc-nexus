@@ -1,4 +1,4 @@
-import { getDb } from '../db/connection.js';
+import { getDb, tx } from '../db/connection.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as XLSX from 'xlsx';
 
@@ -89,7 +89,9 @@ export function importExcel(rows, mapping, mode, userId) {
       origin = COALESCE(NULLIF(excluded.origin, ''), origin)
   `);
 
-  const transaction = db.transaction(() => {
+  // node:sqlite 的 DatabaseSync 没有 .transaction()（那是 better-sqlite3 的 API）——
+  // 必须走 connection.js 封装的 tx()，抛错自动回滚（v2.19 修复：此前 db.transaction is not a function，导入必然 500）
+  const transaction = () => {
     for (const row of rows) {
       try {
         const rawId = String(row[idField] || '').trim();
@@ -127,8 +129,8 @@ export function importExcel(rows, mapping, mode, userId) {
         results.errors.push({ row: JSON.stringify(row), error: err.message });
       }
     }
-  });
+  };
 
-  transaction();
+  tx(transaction);
   return results;
 }

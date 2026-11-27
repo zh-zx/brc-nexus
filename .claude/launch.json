@@ -21,6 +21,12 @@
       "runtimeArgs": ["run", "start"],
       "port": 0,
       "cwd": "print-agent"
+    },
+    {
+      "name": "brc-nexus-e2e",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["_tmp_preview/start-server.mjs"],
+      "port": 7811
     }
   ]
 }

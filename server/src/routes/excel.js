@@ -15,7 +15,8 @@ export default async function excelRoutes(fastify) {
 
       const headers = Object.keys(rows[0]);
       const detected = detectColumns(headers);
-      return { totalRows: rows.length, headers, preview: rows.slice(0, 5), detected };
+      // rows 必须整包回传：前端 excelRows 依赖它提交 /api/excel/import，缺了会导致 IMPORT 静默无效
+      return { totalRows: rows.length, headers, preview: rows.slice(0, 5), detected, rows };
     } catch (err) {
       return reply.status(400).send({ error: '解析 Excel 失败：' + err.message });
     }

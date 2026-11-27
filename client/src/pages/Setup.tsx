@@ -284,7 +284,11 @@ const Setup: React.FC = () => {
   };
 
   const handleImport = async () => {
-    if (!excelRows || excelRows.length === 0) return;
+    if (!excelRows || excelRows.length === 0) {
+      // 不再静默返回：给用户一句白话提示，说明为什么按钮没反应
+      setImportResult('没有可导入的数据，请重新上传 Excel 文件后再点导入。');
+      return;
+    }
     try {
       const res = await api.importExcel(excelRows, excelMapping, importMode);
       setImportResult(`导入完成: ${res.inserted} 条新增, ${res.updated} 条更新, ${res.skipped} 条跳过` + (res.errors?.length > 0 ? `, ${res.errors.length} 条错误` : ''));
@@ -467,16 +471,17 @@ const Setup: React.FC = () => {
                 <button onClick={handleImport} className="btn-primary px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg">
                   Import {excelPreview.totalRows} records
                 </button>
-                <button onClick={() => { setExcelPreview(null); setExcelRows([]); }} className="px-4 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-gray-100 font-medium">
+                <button onClick={() => { setExcelPreview(null); setExcelRows([]); setImportResult(''); }} className="px-4 py-2.5 rounded-xl text-sm text-gray-500 hover:bg-gray-100 font-medium">
                   Cancel
                 </button>
               </div>
+            </div>
+          )}
 
-              {importResult && (
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-sm text-blue-800 font-medium">
-                  {importResult}
-                </div>
-              )}
+          {/* 导入结果横幅：放在预览卡片外层——导入成功会清掉预览卡，横幅放里面就永远看不见 */}
+          {importResult && (
+            <div className={`mt-4 rounded-xl p-3 text-sm font-medium border ${importResult.startsWith('导入完成') ? 'bg-green-50 border-green-100 text-green-800' : 'bg-red-50 border-red-100 text-red-800'}`}>
+              {importResult}
             </div>
           )}
 

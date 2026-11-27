@@ -1236,3 +1236,16 @@ v2.5 引入「以我为中心」的入口：每个用户类型登录后进入**�
 - 全量回归：**`verify_ui_v213` 16/16、`verify_ui_v214` 17/17、`verify_ui_v2141` 15/15、`verify_ui_v215` 49/49、`verify_ui_v216` 30/30、`verify_ui_v217` 23/23、`verify_v215` 41/41**。`shots_v218.py` 两主题 × 5 页（工作台/工单/种质/设置/仪表盘）人工比对通过（brutalist 精密、classic 衬线从容）。
 
 **明确不做（本期）**：逐处重写 3000+ 内联色类（classic 覆盖块兜底 + tone 化高频即可）；自托管字体二进制（离线 PWA，本期仅 system 栈，日后如需真·JetBrains/Fraunces 单独评估体积）；改 `--ink`/`--moss`/classic 主绿色相、`4px 4px 0` 招牌硬阴影、radius 归一（冻结契约）；布局/信息架构重排、路由增删、后端逻辑（仅版本号）；类别型多色图例不并入 tone。
+
+## 六十五、Excel 导入修复：IMPORT 按钮静默无效（v2.19 期间用户报障，2026-11-27）
+
+**由来**：用户在新机上测试，Setup 独立模式上传 Excel（12 行）后点 **IMPORT 12 RECORDS 无任何提示、种质资源页无数据**。排查出**三层叠加缺陷**，后两层自 v2.7（sql.js→node:sqlite）迁移后就存在，但被第一层挡住从未走到：
+1. **上传契约断裂**（直接原因）：`/api/excel/upload` 只回传 `{totalRows, headers, preview(前5行), detected}`，**不含 `rows`**；前端 `setExcelRows(res.rows || [])` → `excelRows` 恒为空数组 → `handleImport` 首行 `if (!excelRows.length) return` **静默返回**——不发请求、不报错、不提示，按钮永远无效。
+2. **导入服务 API 失配**：`excel-import.js` 调 `db.transaction(fn)`（better-sqlite3 的 API），node:sqlite 的 `DatabaseSync` 没有此方法 → 就算数据送达也会 500 `db.transaction is not a function`。项目封装的事务是 connection.js 的模块级 `tx(fn)`。
+3. **连带 UX 缺陷**：结果横幅 `importResult` 渲染在预览卡内部，而成功路径 `setExcelPreview(null)` 会卸载整卡——即使前两层修好，成功提示也永远看不见。
+
+**做了什么**：① `routes/excel.js` upload 响应补回完整 `rows`；② `excel-import.js` 改走 `tx()` 包装（抛错自动回滚）；③ `Setup.tsx` 空数据时给红字提示（不再静默）+ 结果横幅移出预览卡（成功绿/失败红）+ Cancel 清横幅；④ `p0.test.mjs` 新增第 12 项契约测试（upload 必须回传完整 rows + import 入库 + skip 模式幂等）。
+
+**验证**：`node --test server/test/p0.test.mjs` **12/12 全绿**；真实 UI 端到端（隔离实例 7811 + 临时库 + 真实 `测试数据-种质.xlsx`）：登录 → Setup 上传 → Detected 12 rows → IMPORT → 横幅**「导入完成: 12 条新增, 0 条更新, 0 条跳过」**→ 种质资源页**共 12 条** → API 确认 `total: 12`（CIP-001~005 / 101~105 / 201~202）。前端 `tsc` 通过、已重建 `client/dist`（server 实时读盘，浏览器刷新即生效）。
+
+**已知限制（明确不做）**：`/api/excel/import` 走 JSON body，Fastify 默认 bodyLimit 1 MiB，超大 Excel（数万行）会 413 报「请求失败」；要支撑大文件应让 import 直接收 multipart 由服务端解析，本次不做（保持最小改动）。`Setup.tsx`「使用内置 sql.js 数据库」的过期文案未动（踩坑点 2，另行处理）。

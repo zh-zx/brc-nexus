@@ -110,7 +110,7 @@ verify_*.py / shots_*.py     根目录：Python API/UI 验证脚本与截图对�
 27. `client/src/api.ts`：无 body 的 POST/DELETE **不能**带 `Content-Type: application/json`，Fastify 会判 400。
 28. PWA：主 JS 约 3.1MB，`vite.config.ts` 里 `maximumFileSizeToCacheInBytes` 提到 5MB 才不炸；改前端后 PWA 可能仍走旧缓存。
 29. 主题持久化在 `user_setting.ui.theme`；`verify_ui_v213.py` 依赖前一个脚本留下的主题状态，v2.16 起需前置 API 重置为 brutalist，否则假红。**脚本之间有顺序依赖**。
-30. **Excel 导入链路契约**：`/api/excel/upload` 响应必须含完整 `rows`（前端 `excelRows` 靠它提交 import，缺了 IMPORT 按钮静默无效）；`importExcel` 的事务走 connection.js 的模块级 `tx(fn)`——`DatabaseSync` **没有** `.transaction()`（那是 better-sqlite3 的 API）。`/api/excel/import` 是 JSON body，受 Fastify 默认 1 MiB bodyLimit 限制。
+30. **Excel 导入链路契约**：`/api/excel/upload` 响应必须含完整 `rows`（前端 `excelRows` 靠它提交 import，缺了 IMPORT 按钮静默无效）；`importExcel` 的事务走 connection.js 的模块级 `tx(fn)`——`DatabaseSync` **没有** `.transaction()`（那是 better-sqlite3 的 API）。`/api/excel/import` 是 JSON body，受 Fastify 默认 1 MiB bodyLimit 限制。导入的去重/更新按 **`primary_id`（业务编号）匹配**，不是内部 `id`——界面建的行 `id` 是 UUID（`routes/accessions.js`），导入新行也用 UUID；把编号直接当 `id` 写会和界面建的行撞不上、复制出重复行（2026-11-27 实测过 12 对）。
 
 ## 验证方式
 

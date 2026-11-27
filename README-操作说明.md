@@ -1249,3 +1249,13 @@ v2.5 引入「以我为中心」的入口：每个用户类型登录后进入**�
 **验证**：`node --test server/test/p0.test.mjs` **12/12 全绿**；真实 UI 端到端（隔离实例 7811 + 临时库 + 真实 `测试数据-种质.xlsx`）：登录 → Setup 上传 → Detected 12 rows → IMPORT → 横幅**「导入完成: 12 条新增, 0 条更新, 0 条跳过」**→ 种质资源页**共 12 条** → API 确认 `total: 12`（CIP-001~005 / 101~105 / 201~202）。前端 `tsc` 通过、已重建 `client/dist`（server 实时读盘，浏览器刷新即生效）。
 
 **已知限制（明确不做）**：`/api/excel/import` 走 JSON body，Fastify 默认 bodyLimit 1 MiB，超大 Excel（数万行）会 413 报「请求失败」；要支撑大文件应让 import 直接收 multipart 由服务端解析，本次不做（保持最小改动）。`Setup.tsx`「使用内置 sql.js 数据库」的过期文案未动（踩坑点 2，另行处理）。
+
+## 六十六、Excel 导入去重根因修复：按 primary_id 匹配，不再把编号当内部 id（v2.19 期间用户报障，2026-11-27）
+
+**由来**：上节修复后用户实测导入成功，但查库发现**同一编号出现两行**：导入把编号（如 `CIP-001`）直接写进 `accession.id`，而系统约定（界面/接口建行，`routes/accessions.js`）是 `id = UUID`、编号存 `primary_id`。先在界面建了种质、再用 Excel 导入同编号时两边撞不上 → **复制出一行**。实测当时库里 12 条界面老数据 × 13 行导入（含用户手加的 CIP-203 测试行）= 12 对重复。且用户因无提示点了两次 IMPORT（第二次 replace 对第一次的行原地更新，未再翻倍）。
+
+**做了什么**：`excel-import.js` 循环改为先按 `primary_id` 查已有行——命中则**沿用其内部 id 做 upsert（更新原行）**，未命中则 `id = uuidv4()` 新建（与系统约定一致）；顺带修正 replace 模式计数（原先一律计 `inserted`，现在准确区分新增/更新，绿横幅数字变真了）。测试：第 12 项契约测试改按 `primary_id` 断言并校验新行 id 为 UUID；新增第 13 项去重测试——`POST /api/accessions` 界面同款建行 → 同编号 replace 导入 → 断言 `updated=1 / inserted=1`、行数不增、原行 id 不变、skip 模式对界面行生效。
+
+**验证**：`node --test server/test/p0.test.mjs` **13/13 全绿**；重启真实服务（7800）后真库端到端：导入一行已存在编号 CIP-001 → `{"inserted":0,"updated":1,"skipped":0}`，种质总数 **13 → 13**（修复前会是 14）。
+
+**备注**：当时那 12 对重复已随用户「从头试」的清库操作移除（清前整库备份在 `server/data/backups/pre-clean-accession-2026-11-27-01-47-18.db`）。今后从任何来源恢复老数据后再导入，都按编号更新原行，不会复发。

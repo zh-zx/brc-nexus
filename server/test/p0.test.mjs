@@ -314,6 +314,61 @@ test('Excel 契约：/api/excel/upload 回传完整 rows；/api/excel/import 入
   assert.equal(imp2.statusCode, 200, imp2.body);
   assert.equal(imp2.json().skipped, 2);
 
-  const inDb = get("SELECT COUNT(*) AS c FROM accession WHERE id IN ('T-E2E-1','T-E2E-2')").c;
-  assert.equal(inDb, 2, '两条契约测试种质应入库');
+  const inDb = get("SELECT COUNT(*) AS c FROM accession WHERE primary_id IN ('T-E2E-1','T-E2E-2')").c;
+  assert.equal(inDb, 2, '两条契约测试种质应入库（按 primary_id 查，导入新行的 id 应是 UUID）');
+  const one = get("SELECT id FROM accession WHERE primary_id = 'T-E2E-1'");
+  assert.match(one.id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    '导入新建行的 id 应是 UUID，与界面建行约定一致');
+});
+
+// ---------- Excel 去重根因（v2.19 修复：导入必须按 primary_id 匹配，而不是把编号当内部 id） ----------
+// 2026-11-27 实测：老版导入把编号直接写进 id 列，而界面建的行 id 是 UUID、编号在 primary_id，
+// 两边撞不上 → 同一编号导入后出现两行（当时库里 12 对重复）。
+
+test('Excel 去重：导入按 primary_id 匹配界面建的行，同编号更新原行不复制', async () => {
+  // 1) 用界面同款接口先建一行（id=UUID、primary_id=T-DUP-1）
+  const created = await app.inject({
+    method: 'POST', url: '/api/accessions', headers: adminHeaders(),
+    payload: { primaryId: 'T-DUP-1', displayName: '界面建的品种', species: 'S. tuberosum', origin: 'Peru' },
+  });
+  assert.equal(created.statusCode, 200, created.body);
+  const uiId = created.json()._id;
+  assert.match(uiId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    '界面建的行 id 应是 UUID');
+
+  // 2) replace 模式导入：同编号改名 + 一个全新编号
+  const imp = await app.inject({
+    method: 'POST', url: '/api/excel/import', headers: adminHeaders(),
+    payload: {
+      rows: [
+        { cccapNo: 'T-DUP-1', name: '改名后的品种', species: 'S. tuberosum', origin: 'Peru' },
+        { cccapNo: 'T-DUP-2', name: '全新品种', species: 'S. tuberosum', origin: 'Kenya' },
+      ],
+      mapping: { id: 'cccapNo', name: 'name', species: 'species', origin: 'origin' },
+      mode: 'replace',
+    },
+  });
+  assert.equal(imp.statusCode, 200, imp.body);
+  const r = imp.json();
+  assert.equal(r.updated, 1, '同编号应计为更新');
+  assert.equal(r.inserted, 1, '新编号应计为新增');
+
+  // 3) 不产生重复：两个编号共 2 行；界面那行的 id 不变、字段被更新
+  const n = get("SELECT COUNT(*) AS c FROM accession WHERE primary_id IN ('T-DUP-1','T-DUP-2')").c;
+  assert.equal(n, 2, '按编号去重后应只有 2 行，不应复制出第 3 行');
+  const kept = get("SELECT id, display_name FROM accession WHERE primary_id = 'T-DUP-1'");
+  assert.equal(kept.id, uiId, '导入应更新界面建的原行（id 不变），而不是新建一行');
+  assert.equal(kept.display_name, '改名后的品种');
+
+  // 4) skip 模式对界面建的行同样按编号生效
+  const sk = await app.inject({
+    method: 'POST', url: '/api/excel/import', headers: adminHeaders(),
+    payload: {
+      rows: [{ cccapNo: 'T-DUP-1', name: 'x' }],
+      mapping: { id: 'cccapNo', name: 'name' },
+      mode: 'skip',
+    },
+  });
+  assert.equal(sk.statusCode, 200, sk.body);
+  assert.equal(sk.json().skipped, 1, '同编号在 skip 模式下应被跳过');
 });

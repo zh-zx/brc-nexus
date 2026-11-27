@@ -60,6 +60,11 @@ export function importExcel(rows, mapping, mode, userId) {
   const idField = mapping.id || headers[0];
   const nameField = mapping.name || headers[1] || idField;
 
+  // 去重键是业务编号 primary_id，不是内部 id：界面/接口建的行 id 是 UUID（routes/accessions.js），
+  // 老版导入把编号直接当 id 写，两边撞不上 → 同一编号出现两行（2026-11-27 实测 12 对重复）。
+  // 命中已有行就沿用它的 id 做 upsert；新行 id 用 UUID，与系统约定一致。
+  const findIdByPrimary = db.prepare('SELECT id FROM accession WHERE primary_id = ?');
+
   // Prepare statements
   const upsert = db.prepare(`
     INSERT INTO accession (id, data_json, primary_id, display_name, species, origin, source_upload_id, last_modified_by, last_modified_at)
@@ -100,14 +105,14 @@ export function importExcel(rows, mapping, mode, userId) {
           continue;
         }
 
-        const accId = rawId;
+        const existing = findIdByPrimary.get(rawId);
+        const accId = existing ? existing.id : uuidv4();
         const dataJson = JSON.stringify(row);
         const displayName = String(row[nameField] || row[idField] || '').trim();
         const species = mapping.species ? String(row[mapping.species] || '').trim() : '';
         const origin = mapping.origin ? String(row[mapping.origin] || '').trim() : '';
 
         if (mode === 'skip') {
-          const existing = db.prepare('SELECT id FROM accession WHERE id = ?').get(accId);
           if (existing) {
             results.skipped++;
             continue;
@@ -115,15 +120,12 @@ export function importExcel(rows, mapping, mode, userId) {
           insertOnly.run(accId, dataJson, rawId, displayName, species, origin, uploadId, userId || 'unknown');
           results.inserted++;
         } else if (mode === 'merge') {
-          const existing = db.prepare('SELECT id FROM accession WHERE id = ?').get(accId);
           insertUpdate.run(accId, dataJson, rawId, displayName, species, origin, uploadId, userId || 'unknown');
           existing ? results.updated++ : results.inserted++;
         } else {
           // replace/overwrite (default)
           upsert.run(accId, dataJson, rawId, displayName, species, origin, uploadId, userId || 'unknown');
-          const existing = db.prepare('SELECT id FROM accession WHERE id = ?').get(accId);
-          // We can't easily know if it was insert vs update here, approximate
-          results.inserted++;
+          existing ? results.updated++ : results.inserted++;
         }
       } catch (err) {
         results.errors.push({ row: JSON.stringify(row), error: err.message });
